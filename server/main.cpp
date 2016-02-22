@@ -22,6 +22,28 @@
  */
 #include <util/Protocol.hpp>
 
+namespace mbench {
+
+struct Server {
+    void close() {}
+
+    template<Command cmd, class Callback>
+    typename std::enable_if<cmd == Command::Query1, void>::type
+    execute(Callback callback) {
+    }
+
+    template<Command cmd, class Callback>
+    typename std::enable_if<cmd == Command::Query2, void>::type
+    execute(Callback callback) {
+    }
+};
+
+} // namespace mbench
+
 int main() {
+    mbench::Server server;
+    boost::asio::ip::tcp::socket* s = nullptr;
+    crossbow::protocol::Server<mbench::Command_Switch, mbench::Command, mbench::Signature, mbench::Server> srv(server, *s);
+    srv.run();
 }
 

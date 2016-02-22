@@ -25,16 +25,21 @@
 
 namespace mbench {
 
-GEN_COMMANDS(Command, (Q1, Q2, A1, A2, A3));
+GEN_COMMANDS(Command, (Query1, Query2));
 
 template<Command C>
 struct Signature;
 
 template<>
-struct Signature<Command::Q1> {
+struct Signature<Command::Query1> {
     using result = void;
     using arguments = void;
 };
 
+template<>
+struct Signature<Command::Query2> {
+    using result = void;
+    using arguments = void;
+};
 
 }
