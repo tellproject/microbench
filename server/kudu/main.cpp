@@ -24,6 +24,7 @@
 #include <server/main.hpp>
 #include <kudu/client/client.h>
 #include <boost/format.hpp>
+#include <boost/variant.hpp>
 
 #define assertOk(s) kuduAssert(s, __FILE__, __LINE__)
 
@@ -38,10 +39,30 @@ void kuduAssert(kudu::Status status, const char* file, unsigned line) {
 
 class Transaction {
     kudu::client::KuduClient& mClient;
+    std::tr1::shared_ptr<kudu::client::KuduSession> mSession;
+private:
+    kudu::client::KuduSession& session() {
+        if (mSession) {
+            return *mSession;
+        }
+        mSession = mClient.NewSession();
+        assertOk(mSession->SetFlushMode(kudu::client::KuduSession::MANUAL_FLUSH));
+        return *mSession;
+    }
+public: // types
+    using Field = boost::variant<int16_t, int32_t, int16_t, float, double, std::string>;
+    using Tuple = std::vector<Field>;
 public:
     Transaction(kudu::client::KuduClient& client)
         : mClient(client)
     {}
+
+    Tuple newTuple(unsigned n) {
+        return std::vector<Field>(n);
+    }
+
+    void insert(uint64_t key, Tuple& value) {
+    }
 
     void createSchema(unsigned numCols) {
         std::unique_ptr<kudu::client::KuduTableCreator> creator(mClient.NewTableCreator());
@@ -98,7 +119,11 @@ public:
         assertOk(creator->Create());
     }
 
-    void commit() {}
+    void commit() {
+        if (mSession) {
+            assertOk(mSession->Flush());
+        }
+    }
 };
 
 struct ConnectionConfig {
@@ -107,6 +132,8 @@ struct ConnectionConfig {
 
 class Connection {
     std::tr1::shared_ptr<kudu::client::KuduClient> mClient;
+public: // types
+    using string_type = std::string;
 public:
     Connection(const ConnectionConfig& config) {
         kudu::client::KuduClientBuilder builder;
