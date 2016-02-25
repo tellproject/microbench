@@ -22,33 +22,14 @@
  */
 #pragma once
 #include "Population.hpp"
+#include <util/Protocol.hpp>
 
 #include <crossbow/Protocol.hpp>
+#include <boost/format.hpp>
 #include <random>
 #include <limits>
 
 namespace mbench {
-
-GEN_COMMANDS(Commands, (Populate, CreateSchema));
-
-enum class TxType {
-    RW, RO, A
-};
-
-template<Commands cmd>
-struct Signature;
-
-template<>
-struct Signature<Commands::Populate> {
-    using arguments = std::tuple<uint64_t, uint64_t>;
-    using result = std::tuple<bool, crossbow::string>;
-};
-
-template<>
-struct Signature<Commands::CreateSchema> {
-    using arguments = void;
-    using result = std::tuple<bool, crossbow::string>;
-};
 
 template<class Connection, class Transaction>
 class Server {
@@ -63,9 +44,8 @@ private: // members
     boost::asio::io_service& mService;
     boost::asio::ip::tcp::socket mSocket;
     SERVER_TYPE(Commands, Server) mServer;
-    Populator<Connection, Transaction> populator;
     Connection& mConnection;
-    unsigned mSf, mN;
+    unsigned mN;
     std::mt19937_64 mRnd;
     std::tuple<distd, disti, disti, distsi, distsi, distbi, distbi, distd, disti> mDists
         = std::make_tuple(distd(0,1),
@@ -81,12 +61,11 @@ private: // members
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
 public: // construction
-    Server(boost::asio::io_service& service, Connection& connection, unsigned sf, unsigned n)
+    Server(boost::asio::io_service& service, Connection& connection, unsigned n)
         : mService(service)
         , mSocket(service)
         , mServer(*this, mSocket)
         , mConnection(connection)
-        , mSf(sf)
         , mN(n)
         , mRnd(std::random_device()())
     {}
@@ -104,13 +83,25 @@ public:
 public: // commands
     template<Commands C, class Callback>
     typename std::enable_if<C == Commands::CreateSchema, void>::type
-    execute(const Callback& callback) {
-        mConnection.startTx(TxType::RW, [callback, this](Transaction& tx) {
-            tx.createSchema(mN);
-            tx.commit();
-            mService.post([callback](){
-                callback(std::make_tuple(true, std::string("")));
-            });
+    execute(unsigned sf, const Callback& callback) {
+        mConnection.startTx(TxType::RW, [callback, this, sf](Transaction& tx) {
+            try {
+                tx.createSchema(mN, sf);
+                tx.commit();
+                mService.post([callback](){
+                    callback(std::make_tuple(true, std::string("")));
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                auto res = std::make_tuple(false, crossbow::string(ex.what()));
+                mService.post([callback, res]() {
+                    callback(res);
+                });
+            }
         });
     }
 
@@ -153,7 +144,7 @@ public: // commands
                 {
                     auto& d = std::get<8>(mDists);
                     auto& s = mSyllables;
-                    t[8] = s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
+                    t[9] = s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
                 }
             }
         }
@@ -163,16 +154,32 @@ public: // commands
     template<Commands C, class Callback>
     typename std::enable_if<C == Commands::Populate, void>::type
     execute(const std::tuple<uint64_t, uint64_t>& args, const Callback& callback) {
-        unsigned start = std::get<0>(args);
-        unsigned end = std::get<1>(args);
+        uint64_t start = std::get<0>(args);
+        uint64_t end = std::get<1>(args);
+        std::cout << boost::format("Populate %1% to %2%\n") % start % end;
         mConnection.startTx(TxType::RW, [this, callback, start, end](Transaction& tx) {
-            for (uint64_t i = start; i < end; ++i) {
-                insert(tx, i);
+            std::cout << "in transaction\n"; std::cout.flush();
+            try {
+                for (uint64_t i = start; i < end; ++i) {
+                    std::cout << boost::format("Insert %1%\n") % i;
+                    std::cout.flush();
+                    insert(tx, i);
+                }
+                tx.commit();
+                mService.post([callback](){
+                    callback(std::make_tuple(true, std::string("")));
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                auto res = std::make_tuple(false, crossbow::string(ex.what()));
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             }
-            tx.commit();
-            mService.post([callback](){
-                callback(std::make_tuple(true, std::string("")));
-            });
         });
     }
 };
@@ -180,16 +187,16 @@ public: // commands
 using err_code = boost::system::error_code;
 
 template<class Connection, class Transaction>
-void accept(boost::asio::ip::tcp::acceptor& acceptor, Connection& connection, unsigned sf, unsigned n) {
-    auto srv = new mbench::Server<Connection, Transaction>(acceptor.get_io_service(), connection, sf, n);
-    acceptor.async_accept(srv->socket(), [srv, &acceptor, &connection, sf, n](const err_code& ec){
+void accept(boost::asio::ip::tcp::acceptor& acceptor, Connection& connection, unsigned n) {
+    auto srv = new mbench::Server<Connection, Transaction>(acceptor.get_io_service(), connection, n);
+    acceptor.async_accept(srv->socket(), [srv, &acceptor, &connection, n](const err_code& ec){
         if (ec) {
             std::cerr << ec.message();
             delete srv;
             return;
         }
         srv->run();
-        accept<Connection, Transaction>(acceptor, connection, sf, n);
+        accept<Connection, Transaction>(acceptor, connection, n);
     });
 }
 

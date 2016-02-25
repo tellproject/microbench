@@ -21,28 +21,34 @@
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
 #pragma once
-#include <crossbow/Protocol.hpp>
+#include <boost/asio.hpp>
+#include <util/Protocol.hpp>
 
 namespace mbench {
-GEN_COMMANDS(Commands, (CreateSchema, Populate));
 
-enum class TxType : uint32_t {
-    RW, RO, A
+class Client {
+    boost::asio::ip::tcp::socket mSocket;
+    boost::asio::io_service::strand mIOStrand;
+    crossbow::protocol::Client<Commands, Signature> mClient;
+    unsigned mSf;
+    void populate(uint64_t start, uint64_t end);
+public:
+    Client(boost::asio::io_service& service, unsigned sf)
+        : mSocket(service)
+        , mIOStrand(service)
+        , mClient(mSocket)
+        , mSf(sf)
+    {}
+    ~Client() {
+        if (mSocket.is_open()) mSocket.close();
+    }
+    boost::asio::ip::tcp::socket& socket() {
+        return mSocket;
+    }
+
+    void run() {}
+    void populate(const std::vector<std::unique_ptr<Client>>& clients);
 };
 
-template<Commands cmd>
-struct Signature;
+} // namespace mbench
 
-template<>
-struct Signature<Commands::Populate> {
-    using arguments = std::tuple<uint64_t, uint64_t>;
-    using result = std::tuple<bool, crossbow::string>;
-};
-
-template<>
-struct Signature<Commands::CreateSchema> {
-    using arguments = unsigned; // scaling factor
-    using result = std::tuple<bool, crossbow::string>;
-};
-
-}

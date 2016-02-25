@@ -34,25 +34,23 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
     using namespace boost::program_options;
     unsigned numAsioThreads = 1;
     short port = 8713;
-    unsigned sf = 1;
     unsigned n = 10;
     options_description desc("Allowed options");
     desc.add_options()
         ("help,h", "Show help message")
         ("threads,t", value<unsigned>(&numAsioThreads)->default_value(1), "Number of asio threads")
         ("port,p", value<short>(&port)->default_value(8713), "Port to bind to")
-        ("sf,s", value<unsigned>(&sf)->default_value(1), "Scaling factor (SF 1 = 2^30)")
         ("num-columns,n", value<unsigned>(&n)->default_value(10), "Number of columns of table")
         ;
     Config config;
     argFun(desc, config);
     variables_map vm;
     store(parse_command_line(argc, argv, desc), vm);
-    notify(vm);
     if (vm.count("help")) {
         std::cout << desc << std::endl;
         return 0;
     }
+    notify(vm);
     if (numAsioThreads == 0) {
         std::cerr << "-t must be at least 1" << std::endl;
         std::terminate();
@@ -64,7 +62,7 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
 
     Connection connection(config);
 
-    mbench::accept<Connection, Transaction>(acceptor, connection, sf, n);
+    mbench::accept<Connection, Transaction>(acceptor, connection, n);
     std::vector<std::thread> threads;
     threads.reserve(numAsioThreads);
     for (unsigned i = 0; i < numAsioThreads; ++i) {

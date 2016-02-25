@@ -24,6 +24,7 @@
 #include <server/Server.hpp>
 #include <server/main.hpp>
 
+#include <crossbow/allocator.hpp>
 #include <telldb/TellDB.hpp>
 
 #include <thread>
@@ -42,7 +43,10 @@ public:
     {}
 
     void commit() {
+        std::cout << "Commit\n";
         mTx.commit();
+        std::cout << "Commit done\n";
+        std::cout.flush();
     }
 
     Tuple newTuple(unsigned n) {
@@ -53,20 +57,18 @@ public:
         std::unordered_map<crossbow::string, tell::db::Field> map;
         map.reserve(value.size());
         for (unsigned i = 0; i < value.size(); ++i) {
-            unsigned colNum = i + 1;
             char name = 'A' + (i % 10);
-            crossbow::string colName = name + crossbow::to_string(colNum);
+            crossbow::string colName(&name, 1);
             map.emplace(colName, value[i]);
         }
         mTx.insert(tableId(), tell::db::key_t{key}, map);
     }
 
-    void createSchema(unsigned numCols) {
-        tell::store::Schema schema;
+    void createSchema(unsigned numCols, unsigned sf) {
+        tell::store::Schema schema(tell::store::TableType::TRANSACTIONAL);
         for (unsigned i = 0; i < numCols; ++i) {
-            unsigned colNum = i + 1;
             char name = 'A' + (i % 10);
-            crossbow::string colName = name + crossbow::to_string(colNum);
+            crossbow::string colName(&name, 1);
             tell::store::FieldType type;
             switch (i % 10) {
             case 0:
@@ -114,6 +116,11 @@ public:
         : mClientManager(config)
     {}
 
+    ~Connection() {
+        std::cout << "Delete connection\n";
+        std::terminate();
+    }
+
     template<class Callback>
     void startTx(mbench::TxType txType, const Callback& callback) {
         tell::store::TransactionType type;
@@ -135,18 +142,22 @@ public:
 };
 
 int main(int argc, const char* argv[]) {
+    crossbow::allocator::init();
     namespace po = boost::program_options;
     return mbench::mainFun<Connection, Transaction, tell::store::ClientConfig>(argc, argv,
             [](po::options_description& desc, tell::store::ClientConfig& config) {
                 desc.add_options()
-                    ("commit-manager,c", "Commit manager to bind to")
-                    ("storage", "List of storage nodes")
+                    ("commit-manager,c", po::value<std::string>()->required(), "Commit manager to bind to")
+                    ("storage", po::value<std::string>()->required(), "List of storage nodes")
+                    ("network-threads", po::value<unsigned>()->required()->default_value(3),
+                        "Number of Infinio threads")
                     ;
             }, [](po::variables_map& vm, tell::store::ClientConfig& config) {
-                auto commitManager = vm["commit-manager"].as<crossbow::string>();
-                auto storageNodes = vm["storage"].as<crossbow::string>();
+                auto commitManager = vm["commit-manager"].as<std::string>();
+                auto storageNodes = vm["storage"].as<std::string>();
                 config.commitManager = tell::store::ClientConfig::parseCommitManager(commitManager);
                 config.tellStore = tell::store::ClientConfig::parseTellStore(storageNodes);
+                config.numNetworkThreads = vm["network-threads"].as<unsigned>();
             });
 }
 
