@@ -65,8 +65,8 @@ void checkResult(const T& e,
 }
 
 namespace {
-    unsigned long lastReported = 0;
-    std::atomic<unsigned long> populated(0);
+std::atomic<unsigned long> lastReported(0);
+std::atomic<unsigned long> populated(0);
 }
 
 void Client::populate(uint64_t start, uint64_t end) {
@@ -76,16 +76,16 @@ void Client::populate(uint64_t start, uint64_t end) {
     using result = Signature<Commands::Populate>::result;
     uint64_t last = std::min(start + 100, end);
     mClient.execute<Commands::Populate>([this, last, end] (const err_code& ec, const result& res) {
-        std::cout << boost::format("Populated %1%\n") % last;
         assertOk(ec);
         assertOk(res);
-        populated.fetch_add(100);
-        mIOStrand.post([](){
-            auto p = populated.load();
-            if (lastReported + 1000 > p) {
-                std::cout << boost::format("Populated %1% rows\n") % p;
-            }
-        });
+        auto p = populated.fetch_add(100) + 100;
+        auto l = lastReported.load();
+        if (p > 10000 && lastReported < p - 10000 && lastReported.compare_exchange_strong(l, p)) {
+            auto msg = (boost::format("Populated %1% rows\n") % p).str();
+            mIOStrand.post([msg](){
+                std::cout << msg;
+            });
+        }
         populate(last, end);
     }, start, last);
 }

@@ -24,7 +24,7 @@
 #include <crossbow/Protocol.hpp>
 
 namespace mbench {
-GEN_COMMANDS(Commands, (CreateSchema, Populate));
+GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5));
 
 enum class TxType : uint32_t {
     RW, RO, A
@@ -43,6 +43,75 @@ template<>
 struct Signature<Commands::CreateSchema> {
     using arguments = unsigned; // scaling factor
     using result = std::tuple<bool, crossbow::string>;
+};
+
+template<>
+struct Signature<Commands::T1> {
+    struct arguments {
+        uint64_t baseInsertKey;
+        uint64_t numClients;
+    };
+    struct result {
+        using is_serializable = crossbow::is_serializable;
+        bool success;
+        crossbow::string msg;
+        uint64_t lastInsert;
+
+        template<class Archiver>
+        void operator& (Archiver& ar) {
+            ar & success;
+            ar & msg;
+            ar & lastInsert;
+        }
+    };
+};
+
+template<>
+struct Signature<Commands::T2> {
+    struct arguments {
+        uint64_t baseDeleteKey;
+        uint64_t numClients;
+    };
+    struct result {
+        using is_serializable = crossbow::is_serializable;
+        bool success;
+        crossbow::string msg;
+        uint64_t lastDelete;
+
+        template<class Archiver>
+        void operator& (Archiver& ar) {
+            ar & success;
+            ar & msg;
+            ar & lastDelete;
+        }
+    };
+};
+
+template<>
+struct Signature<Commands::T3> {
+    struct arguments {
+        uint64_t baseInsertKey;
+        uint64_t baseDeleteKey;
+        uint64_t numClients;
+        uint64_t clientId;
+    };
+    struct result {
+        using is_serializable = crossbow::is_serializable;
+        bool success;
+        crossbow::string msg;
+
+        template<class Archiver>
+        void operator& (Archiver& ar) {
+            ar & success;
+            ar & msg;
+        }
+    };
+};
+
+template<>
+struct Signature<Commands::T5> {
+    using arguments = typename Signature<Commands::T3>::arguments;
+    using result = typename Signature<Commands::T3>::result;
 };
 
 }

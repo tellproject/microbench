@@ -60,7 +60,7 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
     io_service service;
     ip::tcp::acceptor acceptor(service, ip::tcp::endpoint(ip::tcp::v4(), port));
 
-    Connection connection(config);
+    Connection connection(config, service);
 
     mbench::accept<Connection, Transaction>(acceptor, connection, n);
     std::vector<std::thread> threads;

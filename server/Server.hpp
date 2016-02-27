@@ -35,6 +35,7 @@ template<class Connection, class Transaction>
 class Server {
 private: // types
     using string = typename Connection::string_type;
+    using Field = typename Transaction::Field;
     using disti  = std::uniform_int_distribution<int32_t>;
     using distsi = std::uniform_int_distribution<int16_t>;
     using distbi = std::uniform_int_distribution<int64_t>;
@@ -60,6 +61,7 @@ private: // members
     std::vector<string> mSyllables = {
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
+    std::uniform_int_distribution<unsigned> mColumnDist;
 public: // construction
     Server(boost::asio::io_service& service, Connection& connection, unsigned n)
         : mService(service)
@@ -68,6 +70,7 @@ public: // construction
         , mConnection(connection)
         , mN(n)
         , mRnd(std::random_device()())
+        , mColumnDist(0, mN)
     {}
 public:
     boost::asio::ip::tcp::socket& socket() {
@@ -79,6 +82,95 @@ public:
     void close() {
         mSocket.close();
         delete this;
+    }
+public:
+    std::array<std::pair<unsigned, Field>, 5> rndUpdate() {
+        assert(mN >= 10);
+        std::array<std::pair<unsigned, Field>, 5> cols;
+        std::uniform_int_distribution<unsigned> colDist(0, mN / 10);
+        std::uniform_int_distribution<unsigned> boolDist(1, 10);
+        auto offset = colDist(mRnd) * mN;
+        // double col
+        if (boolDist(mRnd) <= 5) {
+            cols[0] = std::make_pair(offset, rand<0>());
+        } else {
+            cols[0] = std::make_pair(offset + 7, rand<7>());
+        }
+        if (boolDist(mRnd) <= 5) {
+            cols[1] = std::make_pair(offset + 1, rand<1>());
+        } else {
+            cols[1] = std::make_pair(offset + 2, rand<2>());
+        }
+        if (boolDist(mRnd) <= 5) {
+            cols[2] = std::make_pair(offset + 3, rand<3>());
+        } else {
+            cols[2] = std::make_pair(offset + 4, rand<4>());
+        }
+        if (boolDist(mRnd) <= 5) {
+            cols[3] = std::make_pair(offset + 5, rand<5>());
+        } else {
+            cols[3] = std::make_pair(offset + 6, rand<6>());
+        }
+        if (boolDist(mRnd) <= 5) {
+            cols[4] = std::make_pair(offset + 8, rand<9>());
+        } else {
+            cols[4] = std::make_pair(offset + 9, rand<9>());
+        }
+        return cols;
+    }
+    template<int I>
+    typename std::enable_if<I == 0, double>::type
+    rand() {
+        return std::get<0>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 1, int32_t>::type
+    rand() {
+        return std::get<1>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 2, int32_t>::type
+    rand() {
+        return std::get<2>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 3, int16_t>::type
+    rand() {
+        return std::get<3>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 4, int16_t>::type
+    rand() {
+        return std::get<4>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 5, int64_t>::type
+    rand() {
+        return std::get<5>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 6, int64_t>::type
+    rand() {
+        return std::get<6>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 7, double>::type
+    rand() {
+        return std::get<7>(mDists)(mRnd);
+    }
+    template<int I>
+    typename std::enable_if<I == 8, string>::type
+    rand() {
+        auto& d = std::get<8>(mDists);
+        auto& s = mSyllables;
+        return s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
+    }
+    template<int I>
+    typename std::enable_if<I == 9, string>::type
+    rand() {
+        auto& d = std::get<8>(mDists);
+        auto& s = mSyllables;
+        return s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
     }
 public: // commands
     template<Commands C, class Callback>
@@ -110,42 +202,34 @@ public: // commands
         for (unsigned j = 0; j < mN; ++j) {
             switch (j % 10) {
             case 0:
-                t[0] = std::get<0>(mDists)(mRnd);
+                t[0] = rand<0>();
                 break;
             case 1:
-                t[1] = std::get<1>(mDists)(mRnd);
+                t[1] = rand<1>();
                 break;
             case 2:
-                t[2] = std::get<2>(mDists)(mRnd);
+                t[2] = rand<2>();
                 break;
             case 3:
-                t[3] = std::get<3>(mDists)(mRnd);
+                t[3] = rand<3>();
                 break;
             case 4:
-                t[4] = std::get<4>(mDists)(mRnd);
+                t[4] = rand<4>();
                 break;
             case 5:
-                t[5] = std::get<5>(mDists)(mRnd);
+                t[5] = rand<5>();
                 break;
             case 6:
-                t[6] = std::get<6>(mDists)(mRnd);
+                t[6] = rand<6>();
                 break;
             case 7:
-                t[7] = std::get<7>(mDists)(mRnd);
+                t[7] = rand<7>();
                 break;
             case 8:
-                {
-                    auto& d = std::get<8>(mDists);
-                    auto& s = mSyllables;
-                    t[8] = s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
-                }
+                t[8] = rand<8>();
                 break;
             case 9:
-                {
-                    auto& d = std::get<8>(mDists);
-                    auto& s = mSyllables;
-                    t[9] = s[d(mRnd)] + s[d(mRnd)] + s[d(mRnd)];
-                }
+                t[9] = rand<9>();
             }
         }
         tx.insert(key, t);
@@ -156,13 +240,9 @@ public: // commands
     execute(const std::tuple<uint64_t, uint64_t>& args, const Callback& callback) {
         uint64_t start = std::get<0>(args);
         uint64_t end = std::get<1>(args);
-        std::cout << boost::format("Populate %1% to %2%\n") % start % end;
         mConnection.startTx(TxType::RW, [this, callback, start, end](Transaction& tx) {
-            std::cout << "in transaction\n"; std::cout.flush();
             try {
                 for (uint64_t i = start; i < end; ++i) {
-                    std::cout << boost::format("Insert %1%\n") % i;
-                    std::cout.flush();
                     insert(tx, i);
                 }
                 tx.commit();
@@ -178,6 +258,124 @@ public: // commands
                 auto res = std::make_tuple(false, crossbow::string(ex.what()));
                 mService.post([callback, res]() {
                     callback(res);
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::T1, void>::type
+    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
+        using res_type = typename Signature<C>::result;
+        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
+            try {
+                for (uint64_t i = 0; i < 100ul; ++i) {
+                    insert(tx, args.baseInsertKey + i * args.numClients);
+                }
+                auto newBaseInsert = args.baseInsertKey + 100ul * args.numClients;
+                tx.commit();
+                mService.post([callback, newBaseInsert](){
+                    callback(res_type{true, "", newBaseInsert});
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                crossbow::string msg(ex.what());
+                mService.post([callback, msg]() {
+                    callback(res_type{false, msg, 0ul});
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::T2, void>::type
+    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
+        using res_type = typename Signature<C>::result;
+        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
+            try {
+                for (uint64_t i = 0; i < 100ul; ++i) {
+                    tx.remove(args.baseDeleteKey + i * args.numClients);
+                }
+                auto newBaseDelete = args.baseDeleteKey + 100ul * args.numClients;
+                tx.commit();
+                mService.post([callback, newBaseDelete](){
+                    callback(res_type{true, "", newBaseDelete});
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                crossbow::string msg(ex.what());
+                mService.post([callback, msg]() {
+                    callback(res_type{false, msg, 0ul});
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::T3, void>::type
+    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
+        using res_type = typename Signature<C>::result;
+        mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
+            try {
+                std::uniform_int_distribution<uint64_t> dist(args.baseDeleteKey, args.baseInsertKey);
+                for (auto i = 0; i < 100; ++i) {
+                    uint64_t k = dist(mRnd);
+                    k = (k / args.numClients) * args.numClients;
+                    k += args.clientId;
+                    tx.get(k);
+                }
+                tx.commit();
+                mService.post([callback](){
+                    callback(res_type{false, ""});
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                crossbow::string msg(ex.what());
+                mService.post([callback, msg]() {
+                    callback(res_type{false, msg});
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::T5, void>::type
+    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
+        using res_type = typename Signature<C>::result;
+        mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
+            try {
+                std::uniform_int_distribution<uint64_t> dist(args.baseDeleteKey, args.baseInsertKey);
+                for (auto i = 0; i < 100; ++i) {
+                    uint64_t k = dist(mRnd);
+                    k = (k / args.numClients) * args.numClients;
+                    k += args.clientId;
+                    tx.update(k, mN, *this);
+                }
+                tx.commit();
+                mService.post([callback](){
+                    callback(res_type{false, ""});
+                });
+            } catch (std::exception& ex) {
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                            % __FILE__
+                            % __LINE__
+                            % ex.what()
+                        ).str();
+                crossbow::string msg(ex.what());
+                mService.post([callback, msg]() {
+                    callback(res_type{false, msg});
                 });
             }
         });

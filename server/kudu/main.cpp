@@ -22,7 +22,10 @@
  */
 #include <server/Server.hpp>
 #include <server/main.hpp>
+
 #include <kudu/client/client.h>
+#include <kudu/client/row_result.h>
+
 #include <boost/format.hpp>
 #include <boost/variant.hpp>
 #include <mutex>
@@ -97,6 +100,47 @@ public:
 
     Tuple newTuple(unsigned n) {
         return std::vector<Field>(n);
+    }
+
+    template<class S>
+    void update(uint64_t key, unsigned n, S& server) {
+        auto& table = this->table();
+        std::unique_ptr<kudu::client::KuduUpdate> upd(table.NewUpdate());
+        auto row = upd->mutable_row();
+        assertOk(row->SetInt64(0, key));
+        if (n == 1) {
+            assertOk(row->SetDouble(1, server.template rand<0>()));
+        } else {
+            auto cols = server.rndUpdate();
+            SetVisitor visitor(*row);
+            for (auto& p : cols) {
+                visitor.setIdx(p.first);
+                boost::apply_visitor(visitor, p.second);
+            }
+        }
+        auto& session = this->session();
+        assertOk(session.Apply(upd.release()));
+    }
+
+    void get(uint64_t key) {
+        auto& table = this->table();
+        kudu::client::KuduScanner scanner(&table);
+        auto pre = table.NewComparisonPredicate(0, kudu::client::KuduPredicate::EQUAL, kudu::client::KuduValue::FromInt(int64_t(key)));
+        assertOk(scanner.AddConjunctPredicate(pre));
+        assertOk(scanner.Open());
+        if (scanner.HasMoreRows()) {
+            std::vector<kudu::client::KuduRowResult> res;
+            scanner.NextBatch(&res);
+            assert(res.size() == 1);
+        }
+    }
+
+    void remove(uint64_t key) {
+        auto& table = this->table();
+        std::unique_ptr<kudu::client::KuduDelete> del(table.NewDelete());
+        assertOk(del->mutable_row()->SetInt64(0, key));
+        auto& session = this->session();
+        assertOk(session.Apply(del.release()));
     }
 
     void insert(uint64_t key, Tuple& value) {
@@ -198,7 +242,7 @@ class Connection {
 public: // types
     using string_type = std::string;
 public:
-    Connection(const ConnectionConfig& config) {
+    Connection(const ConnectionConfig& config, boost::asio::io_service&) {
         kudu::client::KuduClientBuilder builder;
         builder.add_master_server_addr(config.master);
         builder.Build(&mClient);
