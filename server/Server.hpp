@@ -22,6 +22,7 @@
  */
 #pragma once
 #include "Population.hpp"
+#include "Queries.hpp"
 #include <util/Protocol.hpp>
 
 #include <crossbow/Protocol.hpp>
@@ -33,6 +34,7 @@ namespace mbench {
 
 template<class Connection, class Transaction>
 class Server {
+    friend struct ScanContext<Connection>;
 private: // types
     using string = typename Connection::string_type;
     using Field = typename Transaction::Field;
@@ -62,6 +64,8 @@ private: // members
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
     std::uniform_int_distribution<unsigned> mColumnDist;
+    ScanContext<Connection> mScanContext;
+    Q1<Connection> mQ1;
 public: // construction
     Server(boost::asio::io_service& service, Connection& connection, unsigned n)
         : mService(service)
@@ -71,6 +75,8 @@ public: // construction
         , mN(n)
         , mRnd(std::random_device()())
         , mColumnDist(0, mN)
+        , mScanContext(*this)
+        , mQ1(mScanContext)
     {}
 public:
     boost::asio::ip::tcp::socket& socket() {
@@ -82,6 +88,9 @@ public:
     void close() {
         mSocket.close();
         delete this;
+    }
+    unsigned N() const {
+        return mN;
     }
 public:
     std::array<std::pair<unsigned, Field>, 5> rndUpdate() {
@@ -354,7 +363,7 @@ public: // commands
     typename std::enable_if<C == Commands::T5, void>::type
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
-        mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
+        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
             try {
                 std::uniform_int_distribution<uint64_t> dist(args.baseDeleteKey, args.baseInsertKey);
                 for (auto i = 0; i < 100; ++i) {
@@ -376,6 +385,26 @@ public: // commands
                 crossbow::string msg(ex.what());
                 mService.post([callback, msg]() {
                     callback(res_type{false, msg});
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::Q1, void>::type
+    execute(const Callback& callback) {
+        mConnection.startTx(TxType::A, [this, callback](Transaction& tx) {
+            err_msg res;
+            res.success = true;
+            try {
+            } catch (std::exception& ex) {
+                res.success = false;
+                res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
+                        % __FILE__
+                        % __LINE__
+                        % ex.what()).str();
+                mService.post([callback, res] {
+                    callback(res);
                 });
             }
         });

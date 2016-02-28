@@ -24,10 +24,22 @@
 #include <crossbow/Protocol.hpp>
 
 namespace mbench {
-GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5));
+GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1));
 
 enum class TxType : uint32_t {
     RW, RO, A
+};
+
+struct err_msg {
+    using is_serializable = crossbow::is_serializable;
+    bool success;
+    crossbow::string msg;
+
+    template<class Archiver>
+    void operator& (Archiver& ar) {
+        ar & success;
+        ar & msg;
+    }
 };
 
 template<Commands cmd>
@@ -112,6 +124,12 @@ template<>
 struct Signature<Commands::T5> {
     using arguments = typename Signature<Commands::T3>::arguments;
     using result = typename Signature<Commands::T3>::result;
+};
+
+template<>
+struct Signature<Commands::Q1> {
+    using arguments = void;
+    using result = err_msg;
 };
 
 }
