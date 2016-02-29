@@ -29,8 +29,10 @@ namespace mbench {
 
 template<template <class, class> class Server>
 struct ScanContext<Server, Connection, Transaction>
-: public ContextBase<ScanContext<Server, Connection, Transaction>, tell::store::AggregationType> {
+: public ContextBase<ScanContext<Server, Connection, Transaction>, tell::store::AggregationType, crossbow::string> {
     using AggregationFunction = tell::store::AggregationType;
+    using string = crossbow::string;
+
     Server<Connection, Transaction>& server;
     std::unique_ptr<tell::store::ScanMemoryManager> memoryManager;
 
@@ -61,6 +63,10 @@ struct ScanContext<Server, Connection, Transaction>
 
     unsigned N() const {
         return server.N();
+    }
+
+    const string& rndSyllable() {
+        return server.rndSyllable();
     }
 };
 

@@ -26,8 +26,9 @@
 
 namespace mbench {
 
-template<class Context, class AggregationFunction>
+template<class Context, class AggregationFunction, class Str>
 struct ContextBase {
+    using string = Str;
     std::uniform_int_distribution<int> funSelect;
 
     ContextBase ()
@@ -46,13 +47,15 @@ struct ContextBase {
             return self->min();
         case 4:
             return self->max();
+        default:
+            throw std::runtime_error("Unexpected value");
         }
     }
 
     template<char C>
     std::tuple<unsigned, unsigned> rndTwoCols() {
         auto fst = rndCol<C>();
-        unsigned n = this->N();
+        unsigned n = static_cast<Context*>(this)->N();
         if (n <= 10) {
             return std::make_tuple(fst, fst);
         }
@@ -67,10 +70,14 @@ struct ContextBase {
     unsigned rndCol() {
         auto self = static_cast<Context*>(this);
         unsigned offset = C - 'A';
-        unsigned n = this->N();
+        unsigned n = static_cast<Context*>(this)->N();
         if (n <= 10) return 0;
         std::uniform_int_distribution<unsigned> dist(0, (n - 1)/10);
         return dist(self->rnd()) * 10 + offset;
+    }
+
+    const string& rndSyllable() {
+        return static_cast<const Context*>(this)->rndSyllable();
     }
 };
 
@@ -79,5 +86,17 @@ struct ScanContext;
 
 template<template <class, class> class Server, class Connection, class Transaction>
 struct Q1;
+
+template<template <class, class> class Server, class Connection, class Transaction>
+struct Q2;
+
+template<template <class, class> class Server, class Connection, class Transaction>
+struct Q3;
+
+template<template <class, class> class Server, class Connection, class Transaction>
+struct Q4;
+
+template<template <class, class> class Server, class Connection, class Transaction>
+struct Q5;
 
 } // namespace mbench

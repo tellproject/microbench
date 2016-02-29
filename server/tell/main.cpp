@@ -21,7 +21,7 @@
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
 #define TELL
-#include "Q1.hpp"
+#include "Queries.hpp"
 
 #include <server/Server.hpp>
 #include <server/main.hpp>

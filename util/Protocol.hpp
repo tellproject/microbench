@@ -24,7 +24,7 @@
 #include <crossbow/Protocol.hpp>
 
 namespace mbench {
-GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1));
+GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1, Q2, Q3, Q4, Q5));
 
 enum class TxType : uint32_t {
     RW, RO, A
@@ -132,4 +132,27 @@ struct Signature<Commands::Q1> {
     using result = err_msg;
 };
 
+template<>
+struct Signature<Commands::Q2> {
+    using arguments = void;
+    using result = err_msg;
+};
+
+template<>
+struct Signature<Commands::Q3> {
+    using arguments = void;
+    using result = err_msg;
+};
+
+template<>
+struct Signature<Commands::Q4> {
+    using arguments = void;
+    using result = err_msg;
+};
+
+template<>
+struct Signature<Commands::Q5> {
+    using arguments = void;
+    using result = err_msg;
+};
 }

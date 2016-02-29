@@ -68,6 +68,10 @@ private: // members
     std::uniform_int_distribution<unsigned> mColumnDist;
     GetInstance<ScanContext> mScanContext;
     GetInstance<Q1> mQ1;
+    GetInstance<Q2> mQ2;
+    GetInstance<Q3> mQ3;
+    GetInstance<Q4> mQ4;
+    GetInstance<Q5> mQ5;
 public: // construction
     Server(boost::asio::io_service& service, Connection& connection, unsigned n)
         : mService(service)
@@ -79,6 +83,10 @@ public: // construction
         , mColumnDist(0, mN)
         , mScanContext(*this)
         , mQ1(mScanContext)
+        , mQ2(mScanContext)
+        , mQ3(mScanContext)
+        , mQ4(mScanContext)
+        , mQ5(mScanContext)
     {}
 public:
     boost::asio::ip::tcp::socket& socket() {
@@ -93,6 +101,9 @@ public:
     }
     unsigned N() const {
         return mN;
+    }
+    const string& rndSyllable() {
+        return mSyllables[std::get<8>(mDists)(mRnd)];
     }
 public:
     std::array<std::pair<unsigned, Field>, 5> rndUpdate() {
@@ -399,6 +410,91 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                mQ1(tx);
+            } catch (std::exception& ex) {
+                res.success = false;
+                res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
+                        % __FILE__
+                        % __LINE__
+                        % ex.what()).str();
+                mService.post([callback, res] {
+                    callback(res);
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::Q2, void>::type
+    execute(const Callback& callback) {
+        mConnection.startTx(TxType::A, [this, callback](Transaction& tx) {
+            err_msg res;
+            res.success = true;
+            try {
+                mQ2(tx);
+            } catch (std::exception& ex) {
+                res.success = false;
+                res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
+                        % __FILE__
+                        % __LINE__
+                        % ex.what()).str();
+                mService.post([callback, res] {
+                    callback(res);
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::Q3, void>::type
+    execute(const Callback& callback) {
+        mConnection.startTx(TxType::A, [this, callback](Transaction& tx) {
+            err_msg res;
+            res.success = true;
+            try {
+                mQ3(tx);
+            } catch (std::exception& ex) {
+                res.success = false;
+                res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
+                        % __FILE__
+                        % __LINE__
+                        % ex.what()).str();
+                mService.post([callback, res] {
+                    callback(res);
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::Q4, void>::type
+    execute(const Callback& callback) {
+        mConnection.startTx(TxType::A, [this, callback](Transaction& tx) {
+            err_msg res;
+            res.success = true;
+            try {
+                mQ4(tx);
+            } catch (std::exception& ex) {
+                res.success = false;
+                res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
+                        % __FILE__
+                        % __LINE__
+                        % ex.what()).str();
+                mService.post([callback, res] {
+                    callback(res);
+                });
+            }
+        });
+    }
+
+    template<Commands C, class Callback>
+    typename std::enable_if<C == Commands::Q5, void>::type
+    execute(const Callback& callback) {
+        mConnection.startTx(TxType::A, [this, callback](Transaction& tx) {
+            err_msg res;
+            res.success = true;
+            try {
+                mQ5(tx);
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
