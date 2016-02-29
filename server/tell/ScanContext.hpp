@@ -22,15 +22,15 @@
  */
 #pragma once
 #include "Connection.hpp"
-#include "Q1.hpp"
 
 #include <server/Queries.hpp>
-#include <server/Server.hpp>
 
 namespace mbench {
 
-template<>
-struct ScanContext<Connection> {
+template<template <class, class> class Server>
+struct ScanContext<Server, Connection, Transaction>
+: public ContextBase<ScanContext<Server, Connection, Transaction>, tell::store::AggregationType> {
+    using AggregationFunction = tell::store::AggregationType;
     Server<Connection, Transaction>& server;
     std::unique_ptr<tell::store::ScanMemoryManager> memoryManager;
 
@@ -38,6 +38,30 @@ struct ScanContext<Connection> {
         : server(server)
         , memoryManager(server.mConnection.newScanMemoryManager(server.mConnection.storageCount(), 1024))
     {}
+
+    constexpr tell::store::AggregationType sum() const {
+        return tell::store::AggregationType::SUM;
+    }
+
+    constexpr tell::store::AggregationType count() const {
+        return tell::store::AggregationType::CNT;
+    }
+
+    constexpr tell::store::AggregationType min() const {
+        return tell::store::AggregationType::MIN;
+    }
+
+    constexpr tell::store::AggregationType max() const {
+        return tell::store::AggregationType::MIN;
+    }
+
+    std::mt19937_64& rnd() {
+        return server.mRnd;
+    }
+
+    unsigned N() const {
+        return server.N();
+    }
 };
 
 }

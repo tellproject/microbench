@@ -38,15 +38,34 @@ public: // types
     using Field = tell::db::Field;
 private: // members
     tell::db::Transaction& mTx;
-    tell::db::table_t tableId() {
-        auto resF = mTx.openTable("maintable");
-        return resF.get();
-    }
     std::vector<tell::db::Tuple::id_t> mFieldIds;
     std::vector<uint64_t> mDelete;
     std::vector<uint64_t> mGet;
     std::vector<std::pair<uint64_t, UpdateOp>> mUpdate;
     std::vector<std::pair<uint64_t, Field>>    mFieldUpdates;
+    bool mTableIdSet = false;
+    tell::db::table_t mTableId;
+public:
+    tell::db::table_t tableId() {
+        if (!mTableIdSet) {
+            auto resF = mTx.openTable("maintable");
+            mTableId = resF.get();
+        }
+        return mTableId;
+    }
+    tell::db::Tuple::id_t idOfPos(unsigned pos) {
+        if (mFieldIds.empty()) initFieldIds();
+        return mFieldIds[pos];
+    }
+    crossbow::string nameOfCol(unsigned col) {
+        char name = 'A' + (col % 10);
+        crossbow::string colName(&name, 1);
+        colName += crossbow::to_string(col / 10 + 1);
+        return colName;
+    }
+    tell::db::Transaction& transaction() {
+        return mTx;
+    }
 private:
     void initFieldIds() {
         auto& schema = mTx.getSchema(tableId());
@@ -102,17 +121,6 @@ private:
                 throw std::runtime_error("Unexpected field");
             }
         }
-    }
-    tell::db::Tuple::id_t idOfPos(unsigned pos) {
-        if (mFieldIds.empty()) initFieldIds();
-        return mFieldIds[pos];
-    }
-
-    crossbow::string nameOfCol(unsigned col) {
-        char name = 'A' + (col % 10);
-        crossbow::string colName(&name, 1);
-        colName += crossbow::to_string(col / 10 + 1);
-        return colName;
     }
     void execGets() {
         auto tId = tableId();

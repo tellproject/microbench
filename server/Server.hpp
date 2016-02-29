@@ -21,7 +21,6 @@
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
 #pragma once
-#include "Population.hpp"
 #include "Queries.hpp"
 #include <util/Protocol.hpp>
 
@@ -34,7 +33,10 @@ namespace mbench {
 
 template<class Connection, class Transaction>
 class Server {
-    friend struct ScanContext<Connection>;
+    friend struct ScanContext<::mbench::Server, Connection, Transaction>;
+    // Ultimate hack to make template instanciation more comfortable
+    template<template <template <class, class> class, class, class> class T>
+    using GetInstance = T<::mbench::Server, Connection, Transaction>;
 private: // types
     using string = typename Connection::string_type;
     using Field = typename Transaction::Field;
@@ -64,8 +66,8 @@ private: // members
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
     std::uniform_int_distribution<unsigned> mColumnDist;
-    ScanContext<Connection> mScanContext;
-    Q1<Connection> mQ1;
+    GetInstance<ScanContext> mScanContext;
+    GetInstance<Q1> mQ1;
 public: // construction
     Server(boost::asio::io_service& service, Connection& connection, unsigned n)
         : mService(service)

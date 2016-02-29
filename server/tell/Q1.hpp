@@ -21,19 +21,28 @@
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
 #pragma once
+#include "ScanContext.hpp"
 #include <server/Queries.hpp>
-#include <server/Server.hpp>
 #include "Connection.hpp"
+
+#include <telldb/ScanQuery.hpp>
 
 namespace mbench {
 
-template<>
-struct Q1<Connection> {
-    ScanContext<Connection>& scanContext;
+template<template <class, class> class Server>
+struct Q1<Server, Connection, Transaction> {
+    ScanContext<Server, Connection, Transaction>& scanContext;
 
-    Q1(ScanContext<Connection>& scanContext)
+    Q1(ScanContext<Server, Connection, Transaction>& scanContext)
         : scanContext(scanContext)
     {}
+
+    void operator() (Transaction& tx) {
+        tell::db::Aggregation query(tx.tableId(),
+                {scanContext.rndFun(),
+                tx.idOfPos(scanContext.template rndCol<'A'>())});
+        tx.transaction().scan(query, scanContext.memoryManager);
+    }
 };
 
 } // namespace mbench

@@ -21,8 +21,6 @@
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
 #define TELL
-#include "Connection.hpp"
-#include "ScanContext.hpp"
 #include "Q1.hpp"
 
 #include <server/Server.hpp>

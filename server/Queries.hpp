@@ -22,10 +22,11 @@
  */
 #pragma once
 #include <random>
+#include <tuple>
 
 namespace mbench {
 
-template<class Context>
+template<class Context, class AggregationFunction>
 struct ContextBase {
     std::uniform_int_distribution<int> funSelect;
 
@@ -33,25 +34,50 @@ struct ContextBase {
         : funSelect(1, 4)
     {}
 
-    auto rndFun() -> decltype(this->sum()) {
-        auto f = funSelect(this->rnd());
+    AggregationFunction rndFun() {
+        auto self = static_cast<Context*>(this);
+        auto f = funSelect(self->rnd());
         switch (f) {
         case 1:
-            return this->sum();
+            return self->sum();
         case 2:
-            return this->count();
+            return self->count();
         case 3:
-            return this->min();
+            return self->min();
         case 4:
-            return this->max();
+            return self->max();
         }
+    }
+
+    template<char C>
+    std::tuple<unsigned, unsigned> rndTwoCols() {
+        auto fst = rndCol<C>();
+        unsigned n = this->N();
+        if (n <= 10) {
+            return std::make_tuple(fst, fst);
+        }
+        unsigned snd = rndCol<C>();
+        while (fst == snd) {
+            snd = rndCol<C>();
+        }
+        return std::make_tuple(fst, snd);
+    }
+
+    template<char C>
+    unsigned rndCol() {
+        auto self = static_cast<Context*>(this);
+        unsigned offset = C - 'A';
+        unsigned n = this->N();
+        if (n <= 10) return 0;
+        std::uniform_int_distribution<unsigned> dist(0, (n - 1)/10);
+        return dist(self->rnd()) * 10 + offset;
     }
 };
 
-template<class Connection>
+template<template <class, class> class Server, class Connection, class Transaction>
 struct ScanContext;
 
-template<class Connection>
+template<template <class, class> class Server, class Connection, class Transaction>
 struct Q1;
 
 } // namespace mbench
