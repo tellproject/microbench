@@ -64,6 +64,15 @@ void checkResult(const T& e,
     result_check<T>::check(e, file, line);
 }
 
+uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId) {
+    auto p = numTuples(sf);
+    while (p % numClients != clientId) {
+        --p;
+    }
+    return p;
+}
+
+
 namespace {
 std::atomic<unsigned long> lastReported(0);
 std::atomic<unsigned long> populated(0);
@@ -88,6 +97,151 @@ void Client::populate(uint64_t start, uint64_t end) {
         }
         populate(last, end);
     }, start, last);
+}
+
+bool Client::done(const Clock::time_point& now) {
+    if (now >= mEndTime) {
+        return true;
+    }
+    if (mTimer && mLastTime + std::chrono::seconds(1) >= now) {
+        auto duration = now - mLastTime;
+        mLastTime = now;
+        auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration).count();
+        auto seconds = std::chrono::duration_cast<std::chrono::minutes>(duration).count() % 60;
+        std::cout << boost::format("Ran for %1$02d:%2$02d\n")
+            % minutes
+            % seconds;
+    }
+    return false;
+}
+
+void Client::doRun() {
+    auto now = Clock::now();
+    if (done(now)) {
+        return;
+    }
+    auto rnd = mDist(mRnd);
+    switch (rnd) {
+    case 0:
+        mClient.execute<Commands::T1>([this, now](
+                    const err_code& ec,
+                    const typename Signature<Commands::T1>::result& res) {
+            assertOk(ec);
+            auto end = Clock::now();
+            LogEntry l;
+            l.success = res.success;
+            l.error = res.msg;
+            l.transaction = Commands::T1;
+            l.start = now;
+            l.end = end;
+            mBaseInsert = res.lastInsert;
+            mLog.emplace_back(std::move(l));
+            doRun();
+        },
+        Signature<Commands::T1>::arguments{mBaseInsert, mNumClients});
+    case 1:
+        mClient.execute<Commands::T2>([this, now](
+                    const err_code& ec,
+                    const typename Signature<Commands::T2>::result& res) {
+            assertOk(ec);
+            auto end = Clock::now();
+            LogEntry l;
+            l.success = res.success;
+            l.error = res.msg;
+            l.transaction = Commands::T2;
+            l.start = now;
+            l.end = end;
+            mBaseDelete = res.lastDelete;
+            mLog.emplace_back(std::move(l));
+            doRun();
+        },
+        Signature<Commands::T2>::arguments{mBaseDelete, mNumClients});
+    case 2:
+        mClient.execute<Commands::T3>([this, now](
+                    const err_code& ec,
+                    const typename Signature<Commands::T3>::result& res) {
+            assertOk(ec);
+            auto end = Clock::now();
+            LogEntry l;
+            l.success = res.success;
+            l.error = res.msg;
+            l.transaction = Commands::T3;
+            l.start = now;
+            l.end = end;
+            mLog.emplace_back(std::move(l));
+            doRun();
+        },
+        Signature<Commands::T3>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
+    case 3:
+        mClient.execute<Commands::T5>([this, now](
+                    const err_code& ec,
+                    const typename Signature<Commands::T5>::result& res) {
+            assertOk(ec);
+            auto end = Clock::now();
+            LogEntry l;
+            l.success = res.success;
+            l.error = res.msg;
+            l.transaction = Commands::T5;
+            l.start = now;
+            l.end = end;
+            mLog.emplace_back(std::move(l));
+            doRun();
+        },
+        Signature<Commands::T5>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
+    default:
+        throw std::runtime_error("unexpected query");
+    }
+}
+
+void Client::doRunAnalytical() {
+    auto now = Clock::now();
+    if (done(now)) {
+        return;
+    }
+    auto rnd = mDist(mRnd);
+    auto fun = [this, now](const err_code& ec, const err_msg& res) {
+        assertOk(ec);
+        auto end = Clock::now();
+        LogEntry l;
+        l.success = res.success;
+        l.error = res.msg;
+        l.transaction = mCurrent;
+        l.start = now;
+        l.end = end;
+        mLog.emplace_back(std::move(l));
+    };
+    switch (rnd) {
+    case 0:
+        mCurrent = Commands::Q1;
+        mClient.execute<Commands::Q1>(fun);
+        break;
+    case 1:
+        mCurrent = Commands::Q2;
+        mClient.execute<Commands::Q2>(fun);
+        break;
+    case 2:
+        mCurrent = Commands::Q3;
+        mClient.execute<Commands::Q3>(fun);
+        break;
+    case 3:
+        mCurrent = Commands::Q4;
+        mClient.execute<Commands::Q4>(fun);
+        break;
+    case 4:
+        mCurrent = Commands::Q5;
+        mClient.execute<Commands::Q5>(fun);
+        break;
+    default:
+        throw std::runtime_error("unexpected query");
+    }
+}
+
+void Client::run(Clock::duration duration, bool timer) {
+    mEndTime = Clock::now() + duration;
+    mTimer = timer;
+    mLastTime = Clock::now();
+    if (mAnalytical) doRunAnalytical();
+    else doRun();
 }
 
 void Client::populate(const std::vector<std::unique_ptr<Client>>& clients) {

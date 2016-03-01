@@ -22,12 +22,32 @@
  */
 #include "Client.hpp"
 #include <util/Protocol.hpp>
+#include "sqlite3.h"
 
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/format.hpp>
 
 #include <vector>
 #include <thread>
+
+void sqlOk(int code) {
+    if (code != SQLITE_OK) {
+        throw std::runtime_error(sqlite3_errstr(code));
+    }
+}
+
+std::vector<unsigned> calcAnalyticalDistribution(unsigned numHosts, unsigned numAnayltical) {
+    std::vector<unsigned> res(numHosts, 0);
+    for (auto& c : res) {
+        c = numAnayltical / numHosts;
+    }
+    auto remaining = numAnayltical % numHosts;
+    for (unsigned i = 0; i < remaining; ++i) {
+        ++res[i];
+    }
+    return res;
+}
 
 int main(int argc, const char* argv[]) {
     namespace po = boost::program_options;
@@ -35,15 +55,21 @@ int main(int argc, const char* argv[]) {
     unsigned sf;
     unsigned clientsPerServer = 1;
     bool populate = false;
+    unsigned time;
+    unsigned numAnayltical;
     std::string hostStr;
+    std::string dbFile("out.db");
     po::options_description desc("Allowed options");
     desc.add_options()
         ("help,h", "Show help message")
         ("hosts,H", po::value<std::string>(&hostStr)->required(), "Adress to servers")
         ("scaling-factor,s", po::value<unsigned>(&sf)->required(), "Scaling factor")
         ("clients,c", po::value<unsigned>(&clientsPerServer), "Number of clients per server")
+        ("analytical,a", po::value<unsigned>(&numAnayltical), "Number of analytical clients (in total)")
         ("threads,t", po::value<unsigned>(&numThreads), "Number of network threads")
         ("populate,P", "Run population instead of benchmark")
+        ("db,o", po::value<std::string>(&dbFile), "Output to write to")
+        ("time", po::value<unsigned>(&time), "Number of minutes to run")
         ;
 
     po::variables_map vm;
@@ -52,6 +78,7 @@ int main(int argc, const char* argv[]) {
         std::cout << desc << std::endl;
         return 0;
     }
+
     if (vm.count("populate")) {
         populate = true;
     }
@@ -61,15 +88,31 @@ int main(int argc, const char* argv[]) {
     boost::split(hosts, hostStr, boost::is_any_of(";,"), boost::token_compress_on);
     unsigned numClients = clientsPerServer * hosts.size();
 
+    if (numAnayltical > numClients) {
+        std::cerr << "There can not be more analytical clients than clients in total\n";
+        return 1;
+    }
+
     boost::asio::io_service service;
     std::vector<std::unique_ptr<mbench::Client>> clients;
     clients.reserve(numClients);
     boost::asio::ip::tcp::resolver resolver(service);
     std::vector<std::string> hostPort;
     hostPort.reserve(2);
+
+    auto analyticalClients = calcAnalyticalDistribution(hosts.size(), numAnayltical);
+    bool allAnalytical = true;
+    unsigned numGetPutClients = numClients - numAnayltical;
+    unsigned clientId = 0;
     for (unsigned i = 0; i < hosts.size(); ++i) {
         for (unsigned j = 0; j < clientsPerServer; ++j) {
-            clients.emplace_back(new mbench::Client(service, sf));
+            bool a = j < analyticalClients[i];
+            if (!a) {
+                allAnalytical = false;
+                clients.emplace_back(new mbench::Client(service, sf, numGetPutClients, clientId++, a));
+            } else {
+                clients.emplace_back(new mbench::Client(service, sf, numGetPutClients, 0, a));
+            }
             auto& client = *clients.back();
             boost::split(hostPort, hosts[i], boost::is_any_of(":"), boost::token_compress_on);
             if (hostPort.size() == 1) {
@@ -82,15 +125,27 @@ int main(int argc, const char* argv[]) {
             }
         }
     }
+    auto duration = std::chrono::minutes(time);
+    bool timerChosen = true;
     if (populate) {
         clients[0]->populate(clients);
     } else {
         for (auto& client : clients) {
-            client->run();
+            if (timerChosen && allAnalytical) {
+                client->run(duration, true);
+                timerChosen = false;
+            }
+            else if (timerChosen && !client->isAnalytical()) {
+                client->run(duration, true);
+                timerChosen = false;
+            } else {
+                client->run(duration, false);
+            }
         }
     }
 
 
+    auto startTime = std::chrono::system_clock::now();
     std::vector<std::thread> threads;
     threads.reserve(numThreads - 1);
     for (unsigned i = 0; i < numThreads - 1; ++i) {
@@ -100,4 +155,114 @@ int main(int argc, const char* argv[]) {
     for (auto& t : threads) {
         t.join();
     }
+    std::cout << "Done - writing results\n";
+    sqlite3* db;
+    sqlOk(sqlite3_open(dbFile.c_str(), &db));
+    sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, trans text, success text, msg text)", nullptr, nullptr, nullptr));
+    sqlite3_stmt* stmt;
+    sqlOk(sqlite3_prepare_v2(db, "CREATE TABLE results(start int, end int, trans text, success text, msg text)", -1, &stmt, nullptr));
+
+    for (auto& client : clients) {
+        const auto& log = client->log();
+        for (const auto& e : log) {
+            auto start = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.start - startTime).count());
+            auto end   = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.end - startTime).count());
+            std::string trans = "";
+            switch (e.transaction) {
+            case mbench::Commands::CreateSchema:
+            case mbench::Commands::Populate:
+                throw std::runtime_error("this should not happen");
+            case mbench::Commands::T1:
+                trans = "T1";
+                break;
+            case mbench::Commands::T2:
+                trans = "T2";
+                break;
+            case mbench::Commands::T3:
+                trans = "T3";
+                break;
+            case mbench::Commands::T5:
+                trans = "T5";
+                break;
+            case mbench::Commands::Q1:
+                trans = "Q1";
+                break;
+            case mbench::Commands::Q2:
+                trans = "Q2";
+                break;
+            case mbench::Commands::Q3:
+                trans = "Q3";
+                break;
+            case mbench::Commands::Q4:
+                trans = "Q4";
+                break;
+            case mbench::Commands::Q5:
+                trans = "Q5";
+                break;
+            }
+            std::string success = e.success ? "true" : "false";
+            std::string msg(e.error.data(), e.error.size());
+            sqlOk(sqlite3_bind_int(stmt, 1, start));
+            sqlOk(sqlite3_bind_int(stmt, 2, end));
+            sqlOk(sqlite3_bind_text(stmt, 3, trans.data(), trans.size(), nullptr));
+            sqlOk(sqlite3_bind_text(stmt, 4, success.data(), success.size(), nullptr));
+            sqlOk(sqlite3_bind_text(stmt, 4, msg.data(), msg.size(), nullptr));
+            int s;
+            while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
+                if (s == SQLITE_ERROR) {
+                    throw std::runtime_error(sqlite3_errmsg(db));
+                }
+            }
+        }
+    }
+    sqlOk(sqlite3_finalize(stmt));
+
+    std::cout << "Inserted data, calculating results...\n";
+    std::string getPutTP = (boost::format(
+            "SELECT count(*)/%1% "
+            "FROM result "
+            "WHERE name LIKE 'T%' "
+            "AND start >= 60000 AND end <= 360000 AND success = 'true'"
+            ) % double((time - 1)*60)).str();
+    std::string scanTP = (boost::format(
+            "SELECT count(*)/%!% "
+            "FROM result "
+            "WHERE name LIKE 'Q%' "
+            "AND start >= 60000 AND end <= 360000 AND success = 'true'"
+            ) % double((time - 1)*60)).str();
+    std::string responseTime = (boost::format(
+            "SELECT name, avg(end-start) "
+            "FROM result "
+            "WHERE start >= 60000 AND end <= 360000 AND success = 'true' "
+            "GROUP BY name;"
+            )).str();
+    std::cout << "Get/Put throughput:\n";
+    std::cout << "===================\n";
+    sqlOk(sqlite3_prepare_v2(db, getPutTP.data(), getPutTP.size() + 1, &stmt, nullptr));
+    int s;
+    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
+        double tp = sqlite3_column_double(stmt, 0);
+        std::cout << tp << " /second\n";
+    }
+    sqlOk(sqlite3_finalize(stmt));
+    sqlOk(sqlite3_prepare_v2(db, scanTP.data(), scanTP.size() + 1, &stmt, nullptr));
+    std::cout << "Scan throughput:\n";
+    std::cout << "================\n";
+    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
+        double tp = sqlite3_column_double(stmt, 0);
+        std::cout << tp << " /second\n";
+    }
+    sqlOk(sqlite3_finalize(stmt));
+    sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
+    std::cout << "Response Times:\n";
+    std::cout << "================\n";
+    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
+        auto name = sqlite3_column_text(stmt, 0);
+        double rt = sqlite3_column_double(stmt, 1);
+        std::cout << name << ": " << rt << std::endl;
+    }
+    std::cout << "done";
 }
