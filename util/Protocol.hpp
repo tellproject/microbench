@@ -22,8 +22,11 @@
  */
 #pragma once
 #include <crossbow/Protocol.hpp>
+#include <chrono>
 
 namespace mbench {
+using Clock = std::chrono::steady_clock;
+
 GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1, Q2, Q3, Q4, Q5));
 
 std::string cmdString(Commands cmd);
@@ -36,11 +39,13 @@ struct err_msg {
     using is_serializable = crossbow::is_serializable;
     bool success;
     crossbow::string msg;
+    long responseTime;
 
     template<class Archiver>
     void operator& (Archiver& ar) {
         ar & success;
         ar & msg;
+        ar & responseTime;
     }
 };
 
@@ -70,12 +75,14 @@ struct Signature<Commands::T1> {
         bool success;
         crossbow::string msg;
         uint64_t lastInsert;
+        long responseTime;
 
         template<class Archiver>
         void operator& (Archiver& ar) {
             ar & success;
             ar & msg;
             ar & lastInsert;
+            ar & responseTime;
         }
     };
 };
@@ -83,6 +90,7 @@ struct Signature<Commands::T1> {
 template<>
 struct Signature<Commands::T2> {
     struct arguments {
+        uint64_t baseInsertKey;
         uint64_t baseDeleteKey;
         uint64_t numClients;
     };
@@ -91,12 +99,14 @@ struct Signature<Commands::T2> {
         bool success;
         crossbow::string msg;
         uint64_t lastDelete;
+        long responseTime;
 
         template<class Archiver>
         void operator& (Archiver& ar) {
             ar & success;
             ar & msg;
             ar & lastDelete;
+            ar & responseTime;
         }
     };
 };
@@ -113,11 +123,13 @@ struct Signature<Commands::T3> {
         using is_serializable = crossbow::is_serializable;
         bool success;
         crossbow::string msg;
+        long responseTime;
 
         template<class Archiver>
         void operator& (Archiver& ar) {
             ar & success;
             ar & msg;
+            ar & responseTime;
         }
     };
 };

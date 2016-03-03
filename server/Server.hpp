@@ -219,8 +219,8 @@ public: // commands
         });
     }
 
-    void insert(Transaction& tx, uint64_t key) {
-        auto t = tx.newTuple(mN);
+    typename Transaction::Tuple createInsert() {
+        auto t = Transaction::newTuple(mN);
         for (unsigned j = 0; j < mN; ++j) {
             switch (j % 10) {
             case 0:
@@ -254,7 +254,7 @@ public: // commands
                 t[9] = rand<9>();
             }
         }
-        tx.insert(key, t);
+        return t;
     }
 
     template<Commands C, class Callback>
@@ -265,7 +265,7 @@ public: // commands
         mConnection.startTx(TxType::RW, [this, callback, start, end](Transaction& tx) {
             try {
                 for (uint64_t i = start; i < end; ++i) {
-                    insert(tx, i);
+                    tx.insert(i, createInsert());
                 }
                 tx.commit();
                 mService.post([callback](){
@@ -290,14 +290,24 @@ public: // commands
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
+            std::vector<std::pair<uint64_t, typename Transaction::Tuple>> tuples;
+            tuples.reserve(100);
+            for (uint64_t i = 1; i <= 100ul; ++i) {
+                typename Transaction::Tuple t = Transaction::newTuple(mN);
+                tuples.emplace_back(args.baseInsertKey + i * args.numClients, createInsert());
+            }
+            auto start = Clock::now();
             try {
-                for (uint64_t i = 1; i <= 100ul; ++i) {
-                    insert(tx, args.baseInsertKey + i * args.numClients);
+                for (auto& p : tuples) {
+                    tx.insert(p.first, p.second);
                 }
                 auto newBaseInsert = args.baseInsertKey + 100ul * args.numClients;
                 tx.commit();
-                mService.post([callback, newBaseInsert](){
-                    callback(res_type{true, "", newBaseInsert});
+                auto end = Clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+                mService.post([callback, newBaseInsert, duration](){
+                    callback(res_type{true, "", newBaseInsert,
+                            duration});
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -318,24 +328,31 @@ public: // commands
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
+            std::vector<uint64_t> keys(100);
+            for (uint64_t i = 0; i < 100ul; ++i) {
+                keys[i] = args.baseDeleteKey + i * args.numClients;
+            }
+            auto start = Clock::now();
             try {
-                for (uint64_t i = 0; i < 100ul; ++i) {
-                    tx.remove(args.baseDeleteKey + i * args.numClients);
+                for (auto k : keys) {
+                    tx.remove(k);
                 }
-                auto newBaseDelete = args.baseDeleteKey + 100ul * args.numClients;
                 tx.commit();
-                mService.post([callback, newBaseDelete](){
-                    callback(res_type{true, "", newBaseDelete});
+                auto end = Clock::now();
+                auto newBaseDelete = args.baseDeleteKey + 100ul * args.numClients;
+                mService.post([callback, newBaseDelete, start, end](){
+                    callback(res_type{true, "", newBaseDelete,
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
                 });
             } catch (std::exception& ex) {
-                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
-                            % __FILE__
-                            % __LINE__
+                crossbow::string errmsg = (boost::format("ERROR in %1%: %2% (bI: %3%, bD: %4%)")
+                            % cmdString(Commands::T2)
                             % ex.what()
+                            % args.baseInsertKey
+                            % args.baseDeleteKey
                         ).str();
-                crossbow::string msg(ex.what());
-                mService.post([callback, msg]() {
-                    callback(res_type{false, msg, 0ul});
+                mService.post([callback, errmsg]() {
+                    callback(res_type{false, errmsg, 0ul, 0ul});
                 });
             }
         });
@@ -359,14 +376,20 @@ public: // commands
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
+            std::vector<uint64_t> keys(100);
+            for (auto i = 1; i <= 100; ++i) {
+                keys[i - 1] = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
+            }
+            auto start = Clock::now();
             try {
-                for (auto i = 1; i <= 100; ++i) {
-                    auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
+                for (auto k : keys) {
                     tx.get(k);
                 }
                 tx.commit();
-                mService.post([callback](){
-                    callback(res_type{true, ""});
+                auto end = Clock::now();
+                mService.post([callback, start, end](){
+                    callback(res_type{true, "",
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -376,7 +399,7 @@ public: // commands
                         ).str();
                 crossbow::string msg(ex.what());
                 mService.post([callback, msg]() {
-                    callback(res_type{false, msg});
+                    callback(res_type{false, msg, 0ul});
                 });
             }
         });
@@ -387,14 +410,28 @@ public: // commands
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
+            std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
+            updates.reserve(100);
+            for (auto i = 0; i < 100; ++i) {
+                auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
+                if (mN == 1) {
+                    typename Transaction::UpdateOp update;
+                    update[0] = std::make_pair(0, rand<0>());
+                    updates.emplace_back(k, update);
+                } else {
+                    updates.emplace_back(k, rndUpdate());
+                }
+            }
+            auto start = Clock::now();
             try {
-                for (auto i = 0; i < 100; ++i) {
-                    auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
-                    tx.update(k, mN, *this);
+                for (auto& up : updates) {
+                    tx.update(up.first, up.second);
                 }
                 tx.commit();
-                mService.post([callback](){
-                    callback(res_type{true, ""});
+                auto end = Clock::now();
+                mService.post([callback, start, end](){
+                    callback(res_type{true, "",
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3% (bI: %4%, bD: %5%)")
@@ -406,7 +443,7 @@ public: // commands
                         ).str();
                 crossbow::string msg(ex.what());
                 mService.post([callback, msg]() {
-                    callback(res_type{false, msg});
+                    callback(res_type{false, msg, 0ul});
                 });
             }
         });

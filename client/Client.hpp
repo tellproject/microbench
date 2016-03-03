@@ -29,8 +29,6 @@
 #include <deque>
 
 namespace mbench {
-using Clock = std::chrono::high_resolution_clock;
-
 constexpr uint64_t numTuples(unsigned sf) {
     return uint64_t(sf)*uint64_t(1024*1024);
 }
@@ -43,6 +41,7 @@ struct LogEntry {
     Commands transaction;
     Clock::time_point start;
     Clock::time_point end;
+    long responseTime;
 };
 
 class Client {

@@ -31,6 +31,36 @@
 
 #include <thread>
 
+namespace mbench {
+std::string cmdString(Commands cmd) {
+    switch (cmd) {
+    case mbench::Commands::CreateSchema:
+        return "CreateSchema";
+    case mbench::Commands::Populate:
+        return "Populate";
+    case mbench::Commands::T1:
+        return "T1";
+    case mbench::Commands::T2:
+        return "T2";
+    case mbench::Commands::T3:
+        return "T3";
+    case mbench::Commands::T5:
+        return "T5";
+    case mbench::Commands::Q1:
+        return "Q1";
+    case mbench::Commands::Q2:
+        return "Q2";
+    case mbench::Commands::Q3:
+        return "Q3";
+    case mbench::Commands::Q4:
+        return "Q4";
+    case mbench::Commands::Q5:
+        return "Q5";
+    }
+    throw std::runtime_error("Invalid command");
+}
+}
+
 int main(int argc, const char* argv[]) {
     crossbow::allocator::init();
 

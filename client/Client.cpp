@@ -161,6 +161,8 @@ void Client::doRun() {
         return;
     }
     auto rnd = mDist(mRnd);
+    if (mBaseDelete + mNumClients*100 >= mBaseInsert)
+        rnd = 0;
     switch (rnd) {
     case 0:
         mClient.execute<Commands::T1>([this, now](
@@ -194,11 +196,12 @@ void Client::doRun() {
             l.transaction = Commands::T2;
             l.start = now;
             l.end = end;
+            l.responseTime = res.responseTime;
             mBaseDelete = res.lastDelete;
             mLog.emplace_back(std::move(l));
             doRun();
         },
-        Signature<Commands::T2>::arguments{mBaseDelete, mNumClients});
+        Signature<Commands::T2>::arguments{mBaseInsert, mBaseDelete, mNumClients});
         break;
     case 2:
         mClient.execute<Commands::T3>([this, now](
@@ -213,6 +216,7 @@ void Client::doRun() {
             l.transaction = Commands::T3;
             l.start = now;
             l.end = end;
+            l.responseTime = res.responseTime;
             mLog.emplace_back(std::move(l));
             doRun();
         },
@@ -231,6 +235,7 @@ void Client::doRun() {
             l.transaction = Commands::T5;
             l.start = now;
             l.end = end;
+            l.responseTime = res.responseTime;
             mLog.emplace_back(std::move(l));
             doRun();
         },
@@ -257,6 +262,7 @@ void Client::doRunAnalytical() {
         l.transaction = mCurrent;
         l.start = now;
         l.end = end;
+        l.responseTime = res.responseTime;
         mLog.emplace_back(std::move(l));
     };
     switch (rnd) {

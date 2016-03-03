@@ -98,7 +98,7 @@ public:
         : mClient(client)
     {}
 
-    Tuple newTuple(unsigned n) {
+    static Tuple newTuple(unsigned n) {
         return std::vector<Field>(n);
     }
 

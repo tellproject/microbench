@@ -164,7 +164,6 @@ int main(int argc, const char* argv[]) {
         }
     }
     auto duration = std::chrono::minutes(time);
-    std::cout << "Will run for " << time << " minutes\n";
     bool timerChosen = true;
     if (populate) {
         clients[0]->populate(clients);
@@ -184,7 +183,8 @@ int main(int argc, const char* argv[]) {
     }
 
 
-    auto startTime = std::chrono::system_clock::now();
+    std::cout << "Will run for " << time << " minutes\n";
+    auto startTime = mbench::Clock::now();
     std::vector<std::thread> threads;
     threads.reserve(numThreads - 1);
     for (unsigned i = 0; i < numThreads - 1; ++i) {
@@ -201,26 +201,28 @@ int main(int argc, const char* argv[]) {
     sqlOk(sqlite3_config(SQLITE_CONFIG_SINGLETHREAD));
     sqlite3* db;
     sqlOk(sqlite3_open(dbFile.c_str(), &db));
-    sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, tx text, success text, msg text)", nullptr, nullptr, nullptr));
+    sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, rt int, tx text, success text, msg text)",
+                nullptr, nullptr, nullptr));
 
     // Insert data
     sqlOk(sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr));
     sqlite3_stmt* stmt;
-    sqlOk(sqlite3_prepare_v2(db, "INSERT INTO results VALUES(?, ?, ?, ?, ?)", -1, &stmt, nullptr));
+    sqlOk(sqlite3_prepare_v2(db, "INSERT INTO results VALUES(?, ?, ?, ?, ?, ?)", -1, &stmt, nullptr));
 
     for (auto& client : clients) {
         const auto& log = client->log();
         for (const auto& e : log) {
-            auto start = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.start - startTime).count());
-            auto end   = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.end - startTime).count());
+            auto start = int(std::chrono::duration_cast<std::chrono::microseconds>(e.start - startTime).count());
+            auto end   = int(std::chrono::duration_cast<std::chrono::microseconds>(e.end - startTime).count());
             std::string trans = cmdString(e.transaction);
             std::string success = e.success ? "true" : "false";
             std::string msg(e.error.data(), e.error.size());
             sqlOk(sqlite3_bind_int(stmt, 1, start));
             sqlOk(sqlite3_bind_int(stmt, 2, end));
-            sqlOk(sqlite3_bind_text(stmt, 3, trans.data(), trans.size(), nullptr));
-            sqlOk(sqlite3_bind_text(stmt, 4, success.data(), success.size(), nullptr));
-            sqlOk(sqlite3_bind_text(stmt, 5, msg.data(), msg.size(), nullptr));
+            sqlOk(sqlite3_bind_int(stmt, 3, e.responseTime));
+            sqlOk(sqlite3_bind_text(stmt, 4, trans.data(), trans.size(), nullptr));
+            sqlOk(sqlite3_bind_text(stmt, 5, success.data(), success.size(), nullptr));
+            sqlOk(sqlite3_bind_text(stmt, 6, msg.data(), msg.size(), nullptr));
             int s;
             while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
                 if (s == SQLITE_ERROR) {
@@ -238,18 +240,18 @@ int main(int argc, const char* argv[]) {
             "SELECT count(*)/%1% "
             "FROM results "
             "WHERE tx LIKE 'T%%' "
-            "AND start >= 60000 AND end <= 360000 AND success LIKE 'true'"
-            ) % double((time - 1)*60)).str();
+            "AND start >= 60000000 AND end <= 360000000 AND success LIKE 'true'"
+            ) % double((time - 2)*60*1000)).str();
     std::string scanTP = (boost::format(
             "SELECT count(*)/%1% "
             "FROM results "
             "WHERE tx LIKE 'Q%%' "
             "AND start >= 60000 AND end <= 360000 AND success LIKE 'true'"
-            ) % double((time - 1)*60)).str();
+            ) % double((time - 2)*60*1000)).str();
     std::string responseTime = (boost::format(
-            "SELECT tx, avg(end-start) "
+            "SELECT tx, avg(rt) "
             "FROM results "
-            "WHERE start >= 60000 AND end <= 360000 AND success LIKE 'true' "
+            "WHERE start >= 60000000 AND end <= 360000000 AND success LIKE 'true' "
             "GROUP BY tx;"
             )).str();
     std::cout << "Get/Put throughput:\n";
@@ -278,7 +280,7 @@ int main(int argc, const char* argv[]) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         auto name = sqlite3_column_text(stmt, 0);
         double rt = sqlite3_column_double(stmt, 1);
-        std::cout << name << ": " << rt << std::endl;
+        std::cout << name << ": " << rt/1000.0 << " microseconds" << std::endl;
     }
     std::cout << "done";
     sqlite3_close(db);

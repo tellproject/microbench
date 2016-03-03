@@ -31,9 +31,9 @@ namespace mbench {
 
 class Transaction {
 private: // Types
-    using UpdateOp = std::array<std::pair<unsigned, tell::db::Field>, 5>;
     using GetFuture = tell::db::Future<tell::db::Tuple>;
 public: // types
+    using UpdateOp = std::array<std::pair<unsigned, tell::db::Field>, 5>;
     using Tuple = std::vector<tell::db::Field>;
     using Field = tell::db::Field;
 private: // members
@@ -129,8 +129,8 @@ private:
         for (auto key : mGet) {
             getsF.emplace_back(mTx.get(tId, tell::db::key_t{key}));
         }
-        for (unsigned i = 0; i < mGet.size(); ++i) {
-            auto t = getsF[i].get();
+        for (auto iter = getsF.rbegin(); iter != getsF.rend(); ++iter) {
+            iter->wait();
         }
         mGet.clear();
     }
@@ -141,9 +141,9 @@ private:
         for (auto key : mDelete) {
             getsF.emplace_back(mTx.get(tId, tell::db::key_t{key}));
         }
-        for (unsigned i = 0; i < mDelete.size(); ++i) {
-            auto t = getsF[i].get();
-            mTx.remove(tId, tell::db::key_t{mDelete[i]}, t);
+        for (auto i = getsF.size(); i > 0; --i) {
+            auto t = getsF[i - 1].get();
+            mTx.remove(tId, tell::db::key_t{mDelete[i - 1]}, t);
         }
         mDelete.clear();
     }
@@ -194,7 +194,7 @@ public:
         mTx.commit();
     }
 
-    Tuple newTuple(unsigned n) {
+    static Tuple newTuple(unsigned n) {
         return std::vector<tell::db::Field>(n);
     }
 
@@ -206,13 +206,8 @@ public:
         mGet.push_back(key);
     }
 
-    template<class S>
-    void update(uint64_t key, unsigned n, S& server) {
-        if (n == 1) {
-            mFieldUpdates.push_back(std::make_pair(key, server.template rand<0>()));
-        } else {
-            mUpdate.push_back(std::make_pair(key, server.rndUpdate()));
-        }
+    void update(uint64_t key, const UpdateOp& up) {
+        mUpdate.emplace_back(key, up);
     }
 
     void insert(uint64_t key, Tuple value) {
