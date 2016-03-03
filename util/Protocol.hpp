@@ -26,6 +26,8 @@
 namespace mbench {
 GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1, Q2, Q3, Q4, Q5));
 
+std::string cmdString(Commands cmd);
+
 enum class TxType : uint32_t {
     RW, RO, A
 };

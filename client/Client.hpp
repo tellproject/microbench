@@ -32,7 +32,7 @@ namespace mbench {
 using Clock = std::chrono::high_resolution_clock;
 
 constexpr uint64_t numTuples(unsigned sf) {
-    return uint64_t(sf)*uint64_t(1024*1024*1024);
+    return uint64_t(sf)*uint64_t(1024*1024);
 }
 
 extern uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId);
@@ -48,11 +48,12 @@ struct LogEntry {
 class Client {
 private:
     boost::asio::ip::tcp::socket mSocket;
-    boost::asio::io_service::strand mIOStrand;
+    boost::asio::io_service::strand& mIOStrand;
     crossbow::protocol::Client<Commands, Signature> mClient;
     unsigned mSf;
-    Clock::time_point mEndTime;
     bool mTimer = false;
+    Clock::time_point mStartTime;
+    Clock::time_point mEndTime;
     Clock::time_point mLastTime;
     std::mt19937 mRnd;
     std::uniform_int_distribution<unsigned> mDist;
@@ -70,14 +71,16 @@ private:
     void doRunAnalytical();
 public:
     Client(boost::asio::io_service& service
+           , boost::asio::io_service::strand& ioStrand
            , unsigned sf
            , unsigned numClients
            , unsigned clientId
            , bool analytical)
         : mSocket(service)
-        , mIOStrand(service)
+        , mIOStrand(ioStrand)
         , mClient(mSocket)
         , mSf(sf)
+        , mStartTime(Clock::now())
         , mRnd(std::random_device()())
         , mDist(0, analytical ? 4 : 3)
         , mAnalytical(analytical)
@@ -93,13 +96,21 @@ public:
         return mSocket;
     }
 
-    void run(Clock::duration duration, bool timer);
+    void run(const Clock::duration& duration, bool timer);
     void populate(const std::vector<std::unique_ptr<Client>>& clients);
     bool isAnalytical() const {
         return mAnalytical;
     }
     const std::deque<LogEntry>& log() const {
         return mLog;
+    }
+
+    unsigned numClients() const {
+        return mNumClients;
+    }
+
+    unsigned clientId() const {
+        return mClientId;
     }
 };
 

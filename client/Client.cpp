@@ -28,18 +28,36 @@
 namespace mbench {
 using err_code = boost::system::error_code;
 
-#define assertOk(t) checkResult(t, __FILE__, __LINE__)
+#define assertOk(client, t, cmd) checkResult(client, t, cmd, __FILE__, __LINE__)
 
 template<class T>
-struct result_check;
+struct result_check {
+    static void check(
+            const Client& client,
+            const T& res,
+            Commands cmd,
+            const crossbow::string& file,
+            unsigned line) {
+        if (res.success) return;
+        auto msg = boost::format("error in %1% (%2%:%3%): %4% (Client %5%/%6%)")
+            % cmdString(cmd) % file % line % res.msg
+            % client.clientId() % client.numClients();
+        throw std::runtime_error(msg.str());
+    }
+};
 
 template<>
 struct result_check<std::tuple<bool, crossbow::string>> {
-    static void check(const std::tuple<bool, crossbow::string>& result,
+    static void check(
+            const Client& client,
+            const std::tuple<bool, crossbow::string>& result,
+            Commands cmd,
             const crossbow::string& file,
             unsigned line) {
         if (!std::get<0>(result)) {
-            auto msg = boost::format("error (%1%:%2%): %3%") % file % line % std::get<1>(result);
+            auto msg = boost::format("error in %1% (%2%:%3%): %4% (Client %5%/%6%)")
+                % cmdString(cmd) % file % line % std::get<1>(result)
+                % client.clientId() % client.numClients();
             throw std::runtime_error(msg.str());
         }
     }
@@ -47,25 +65,33 @@ struct result_check<std::tuple<bool, crossbow::string>> {
 
 template<>
 struct result_check<err_code> {
-    static void check(const err_code& ec,
+    static void check(
+            const Client& client,
+            const err_code& ec,
+            Commands cmd,
             const crossbow::string& file,
             unsigned line) {
         if (ec) {
-            auto msg = boost::format("error (%1%:%2%): %3%") % file % line % ec.message();
+            auto msg = boost::format("error in %1% (%2%:%3%): %4% (Client %5%/%6%)")
+                % cmdString(cmd) % file % line % ec.message()
+                % client.clientId() % client.numClients();
             throw std::runtime_error(msg.str());
         }
     }
 };
 
 template<class T>
-void checkResult(const T& e,
+void checkResult(
+        const Client& client,
+        const T& e,
+        Commands cmd,
         const crossbow::string& file,
         unsigned line) {
-    result_check<T>::check(e, file, line);
+    result_check<T>::check(client, e, cmd, file, line);
 }
 
 uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId) {
-    auto p = numTuples(sf);
+    auto p = numTuples(sf) - 1;
     while (p % numClients != clientId) {
         --p;
     }
@@ -76,6 +102,7 @@ uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId) 
 namespace {
 std::atomic<unsigned long> lastReported(0);
 std::atomic<unsigned long> populated(0);
+bool firstCallToPrint= true;
 }
 
 void Client::populate(uint64_t start, uint64_t end) {
@@ -85,8 +112,8 @@ void Client::populate(uint64_t start, uint64_t end) {
     using result = Signature<Commands::Populate>::result;
     uint64_t last = std::min(start + 100, end);
     mClient.execute<Commands::Populate>([this, last, end] (const err_code& ec, const result& res) {
-        assertOk(ec);
-        assertOk(res);
+        assertOk(*this, ec, Commands::Populate);
+        assertOk(*this, res, Commands::Populate);
         auto p = populated.fetch_add(100) + 100;
         auto l = lastReported.load();
         if (p > 10000 && lastReported < p - 10000 && lastReported.compare_exchange_strong(l, p)) {
@@ -101,16 +128,29 @@ void Client::populate(uint64_t start, uint64_t end) {
 
 bool Client::done(const Clock::time_point& now) {
     if (now >= mEndTime) {
+        mIOStrand.post([this](){
+            if (mTimer) std::cout << std::endl;
+            std::cout << "Client " << mClientId << " done\n";
+        });
         return true;
     }
-    if (mTimer && mLastTime + std::chrono::seconds(1) >= now) {
-        auto duration = now - mLastTime;
+    if (mTimer && now - std::chrono::seconds(1) >= mLastTime) {
         mLastTime = now;
-        auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration).count();
-        auto seconds = std::chrono::duration_cast<std::chrono::minutes>(duration).count() % 60;
-        std::cout << boost::format("Ran for %1$02d:%2$02d\n")
-            % minutes
-            % seconds;
+        auto start = mStartTime;
+        mIOStrand.post([now, start]() {
+            auto duration = now - start;
+            auto minutes = std::chrono::duration_cast<std::chrono::minutes>(duration).count();
+            auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+            if (!firstCallToPrint) {
+                firstCallToPrint = false;
+            } else {
+                std::cout << "\b\b\b\b\b\033[K";
+            }
+            std::cout << boost::format("%1$02d:%2$02d")
+                % minutes
+                % (seconds % 60);
+            std::cout.flush();
+        });
     }
     return false;
 }
@@ -126,7 +166,8 @@ void Client::doRun() {
         mClient.execute<Commands::T1>([this, now](
                     const err_code& ec,
                     const typename Signature<Commands::T1>::result& res) {
-            assertOk(ec);
+            assertOk(*this, ec, Commands::T1);
+            assertOk(*this, res, Commands::T1);
             auto end = Clock::now();
             LogEntry l;
             l.success = res.success;
@@ -139,11 +180,13 @@ void Client::doRun() {
             doRun();
         },
         Signature<Commands::T1>::arguments{mBaseInsert, mNumClients});
+        break;
     case 1:
         mClient.execute<Commands::T2>([this, now](
                     const err_code& ec,
                     const typename Signature<Commands::T2>::result& res) {
-            assertOk(ec);
+            assertOk(*this, ec, Commands::T2);
+            assertOk(*this, res, Commands::T2);
             auto end = Clock::now();
             LogEntry l;
             l.success = res.success;
@@ -156,11 +199,13 @@ void Client::doRun() {
             doRun();
         },
         Signature<Commands::T2>::arguments{mBaseDelete, mNumClients});
+        break;
     case 2:
         mClient.execute<Commands::T3>([this, now](
                     const err_code& ec,
                     const typename Signature<Commands::T3>::result& res) {
-            assertOk(ec);
+            assertOk(*this, ec, Commands::T3);
+            assertOk(*this, res, Commands::T3);
             auto end = Clock::now();
             LogEntry l;
             l.success = res.success;
@@ -172,11 +217,13 @@ void Client::doRun() {
             doRun();
         },
         Signature<Commands::T3>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
+        break;
     case 3:
         mClient.execute<Commands::T5>([this, now](
                     const err_code& ec,
                     const typename Signature<Commands::T5>::result& res) {
-            assertOk(ec);
+            assertOk(*this, ec, Commands::T5);
+            assertOk(*this, res, Commands::T5);
             auto end = Clock::now();
             LogEntry l;
             l.success = res.success;
@@ -188,6 +235,7 @@ void Client::doRun() {
             doRun();
         },
         Signature<Commands::T5>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
+        break;
     default:
         throw std::runtime_error("unexpected query");
     }
@@ -200,7 +248,8 @@ void Client::doRunAnalytical() {
     }
     auto rnd = mDist(mRnd);
     auto fun = [this, now](const err_code& ec, const err_msg& res) {
-        assertOk(ec);
+        assertOk(*this, ec, mCurrent);
+        assertOk(*this, res, mCurrent);
         auto end = Clock::now();
         LogEntry l;
         l.success = res.success;
@@ -236,10 +285,11 @@ void Client::doRunAnalytical() {
     }
 }
 
-void Client::run(Clock::duration duration, bool timer) {
-    mEndTime = Clock::now() + duration;
+void Client::run(const Clock::duration& duration, bool timer) {
+    auto now = Clock::now();
+    mEndTime = now + duration;
     mTimer = timer;
-    mLastTime = Clock::now();
+    mLastTime = now;
     if (mAnalytical) doRunAnalytical();
     else doRun();
 }
@@ -247,11 +297,11 @@ void Client::run(Clock::duration duration, bool timer) {
 void Client::populate(const std::vector<std::unique_ptr<Client>>& clients) {
     mClient.execute<Commands::CreateSchema>([this, &clients](const err_code& ec,
                 const std::tuple<bool, crossbow::string>& res) {
-        assertOk(ec);
-        assertOk(res);
+        assertOk(*this, ec, Commands::Populate);
+        assertOk(*this, res, Commands::Populate);
         LOG_INFO("Created Schema, start population");
         std::cout << "Created Schema - start population" << std::endl;
-        uint64_t numTuples = mSf * 1024 * 1024 * 1024;
+        uint64_t numTuples = mSf * 1024 * 1024;
         uint64_t tuplesPerClient = numTuples / clients.size();
         for (uint64_t i = 0; i < clients.size(); ++i) {
             if (i + 1 == clients.size()) {

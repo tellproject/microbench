@@ -105,11 +105,11 @@ private:
                 mFieldIds[7 + occ[7]++] = i;
                 break;
             default:
-                throw std::runtime_error("Unexpected field");
+                throw std::runtime_error((boost::format("Unexpected field %1%") % field.name()).str().c_str());
             }
         }
         for (; i - fixedSized.size() < varSized.size(); ++i) {
-            auto& field = fixedSized[i];
+            auto& field = varSized[i - fixedSized.size()];
             switch (field.name()[0]) {
             case 'I':
                 mFieldIds[8 + occ[8]++] = i;
@@ -118,7 +118,7 @@ private:
                 mFieldIds[9 + occ[9]++] = i;
                 break;
             default:
-                throw std::runtime_error("Unexpected field");
+                throw std::runtime_error((boost::format("Unexpected field %1%") % field.name()).str().c_str());
             }
         }
     }
@@ -163,6 +163,8 @@ private:
             auto old = tuple;
             auto& arr = mUpdate[i].second;
             for (auto& p : arr) {
+                auto& field = tuple[idOfPos(p.first)];
+                assert(field.type() == p.second.type());
                 tuple[idOfPos(p.first)] = p.second;
             }
             mTx.update(tId, tell::db::key_t{mUpdate[i].first}, old, tuple);

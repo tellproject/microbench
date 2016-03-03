@@ -109,9 +109,9 @@ public:
     std::array<std::pair<unsigned, Field>, 5> rndUpdate() {
         assert(mN >= 10);
         std::array<std::pair<unsigned, Field>, 5> cols;
-        std::uniform_int_distribution<unsigned> colDist(0, mN / 10);
+        std::uniform_int_distribution<unsigned> colDist(0, mN / 10 - 1);
         std::uniform_int_distribution<unsigned> boolDist(1, 10);
-        auto offset = colDist(mRnd) * mN;
+        auto offset = mN == 10 ? 0 : colDist(mRnd) * mN;
         // double col
         if (boolDist(mRnd) <= 5) {
             cols[0] = std::make_pair(offset, rand<0>());
@@ -291,7 +291,7 @@ public: // commands
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
             try {
-                for (uint64_t i = 0; i < 100ul; ++i) {
+                for (uint64_t i = 1; i <= 100ul; ++i) {
                     insert(tx, args.baseInsertKey + i * args.numClients);
                 }
                 auto newBaseInsert = args.baseInsertKey + 100ul * args.numClients;
@@ -341,22 +341,32 @@ public: // commands
         });
     }
 
+    uint64_t rndKey(uint64_t baseInsertKey, uint64_t baseDeleteKey, unsigned numClients, unsigned clientId) {
+        std::uniform_int_distribution<uint64_t> dist(baseDeleteKey, baseInsertKey);
+        uint64_t k = dist(mRnd);
+        k = (k / numClients) * numClients;
+        k += clientId;
+        if (k >= baseInsertKey) {
+            k -= numClients;
+        } else if (k < baseDeleteKey) {
+            k += numClients;
+        }
+        return k;
+    }
+
     template<Commands C, class Callback>
     typename std::enable_if<C == Commands::T3, void>::type
     execute(const typename Signature<C>::arguments& args, const Callback& callback) {
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
             try {
-                std::uniform_int_distribution<uint64_t> dist(args.baseDeleteKey, args.baseInsertKey);
-                for (auto i = 0; i < 100; ++i) {
-                    uint64_t k = dist(mRnd);
-                    k = (k / args.numClients) * args.numClients;
-                    k += args.clientId;
+                for (auto i = 1; i <= 100; ++i) {
+                    auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
                     tx.get(k);
                 }
                 tx.commit();
                 mService.post([callback](){
-                    callback(res_type{false, ""});
+                    callback(res_type{true, ""});
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -378,22 +388,21 @@ public: // commands
         using res_type = typename Signature<C>::result;
         mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
             try {
-                std::uniform_int_distribution<uint64_t> dist(args.baseDeleteKey, args.baseInsertKey);
                 for (auto i = 0; i < 100; ++i) {
-                    uint64_t k = dist(mRnd);
-                    k = (k / args.numClients) * args.numClients;
-                    k += args.clientId;
+                    auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
                     tx.update(k, mN, *this);
                 }
                 tx.commit();
                 mService.post([callback](){
-                    callback(res_type{false, ""});
+                    callback(res_type{true, ""});
                 });
             } catch (std::exception& ex) {
-                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
+                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3% (bI: %4%, bD: %5%)")
                             % __FILE__
                             % __LINE__
                             % ex.what()
+                            % args.baseInsertKey
+                            % args.baseDeleteKey
                         ).str();
                 crossbow::string msg(ex.what());
                 mService.post([callback, msg]() {

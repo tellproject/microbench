@@ -31,9 +31,44 @@
 #include <vector>
 #include <thread>
 
-void sqlOk(int code) {
+namespace mbench {
+
+std::string cmdString(Commands cmd) {
+    switch (cmd) {
+    case mbench::Commands::CreateSchema:
+        return "CreateSchema";
+    case mbench::Commands::Populate:
+        return "Populate";
+    case mbench::Commands::T1:
+        return "T1";
+    case mbench::Commands::T2:
+        return "T2";
+    case mbench::Commands::T3:
+        return "T3";
+    case mbench::Commands::T5:
+        return "T5";
+    case mbench::Commands::Q1:
+        return "Q1";
+    case mbench::Commands::Q2:
+        return "Q2";
+    case mbench::Commands::Q3:
+        return "Q3";
+    case mbench::Commands::Q4:
+        return "Q4";
+    case mbench::Commands::Q5:
+        return "Q5";
+    }
+    throw std::runtime_error("Invalid command");
+}
+
+} // namespace mbench
+
+#define sqlOk(code) assertSql(code, __FILE__, __LINE__)
+
+void assertSql(int code, const char* file, int line) {
     if (code != SQLITE_OK) {
-        throw std::runtime_error(sqlite3_errstr(code));
+        auto msg = (boost::format("ERROR (%1%:%2%): %3%") % file % line % sqlite3_errstr(code)).str();
+        throw std::runtime_error(msg.c_str());
     }
 }
 
@@ -55,7 +90,7 @@ int main(int argc, const char* argv[]) {
     unsigned sf;
     unsigned clientsPerServer = 1;
     bool populate = false;
-    unsigned time;
+    unsigned time = 5;
     unsigned numAnayltical;
     std::string hostStr;
     std::string dbFile("out.db");
@@ -84,6 +119,8 @@ int main(int argc, const char* argv[]) {
     }
     notify(vm);
 
+    time += 2;
+
     std::vector<std::string> hosts;
     boost::split(hosts, hostStr, boost::is_any_of(";,"), boost::token_compress_on);
     unsigned numClients = clientsPerServer * hosts.size();
@@ -94,6 +131,7 @@ int main(int argc, const char* argv[]) {
     }
 
     boost::asio::io_service service;
+    boost::asio::io_service::strand ioStrand(service);
     std::vector<std::unique_ptr<mbench::Client>> clients;
     clients.reserve(numClients);
     boost::asio::ip::tcp::resolver resolver(service);
@@ -109,9 +147,9 @@ int main(int argc, const char* argv[]) {
             bool a = j < analyticalClients[i];
             if (!a) {
                 allAnalytical = false;
-                clients.emplace_back(new mbench::Client(service, sf, numGetPutClients, clientId++, a));
+                clients.emplace_back(new mbench::Client(service, ioStrand, sf, numGetPutClients, clientId++, a));
             } else {
-                clients.emplace_back(new mbench::Client(service, sf, numGetPutClients, 0, a));
+                clients.emplace_back(new mbench::Client(service, ioStrand, sf, numGetPutClients, 0, a));
             }
             auto& client = *clients.back();
             boost::split(hostPort, hosts[i], boost::is_any_of(":"), boost::token_compress_on);
@@ -126,6 +164,7 @@ int main(int argc, const char* argv[]) {
         }
     }
     auto duration = std::chrono::minutes(time);
+    std::cout << "Will run for " << time << " minutes\n";
     bool timerChosen = true;
     if (populate) {
         clients[0]->populate(clients);
@@ -155,92 +194,69 @@ int main(int argc, const char* argv[]) {
     for (auto& t : threads) {
         t.join();
     }
+    if (populate) {
+        return 0;
+    }
     std::cout << "Done - writing results\n";
+    sqlOk(sqlite3_config(SQLITE_CONFIG_SINGLETHREAD));
     sqlite3* db;
     sqlOk(sqlite3_open(dbFile.c_str(), &db));
-    sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, trans text, success text, msg text)", nullptr, nullptr, nullptr));
+    sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, tx text, success text, msg text)", nullptr, nullptr, nullptr));
+
+    // Insert data
+    sqlOk(sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr));
     sqlite3_stmt* stmt;
-    sqlOk(sqlite3_prepare_v2(db, "CREATE TABLE results(start int, end int, trans text, success text, msg text)", -1, &stmt, nullptr));
+    sqlOk(sqlite3_prepare_v2(db, "INSERT INTO results VALUES(?, ?, ?, ?, ?)", -1, &stmt, nullptr));
 
     for (auto& client : clients) {
         const auto& log = client->log();
         for (const auto& e : log) {
             auto start = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.start - startTime).count());
             auto end   = int(std::chrono::duration_cast<std::chrono::milliseconds>(e.end - startTime).count());
-            std::string trans = "";
-            switch (e.transaction) {
-            case mbench::Commands::CreateSchema:
-            case mbench::Commands::Populate:
-                throw std::runtime_error("this should not happen");
-            case mbench::Commands::T1:
-                trans = "T1";
-                break;
-            case mbench::Commands::T2:
-                trans = "T2";
-                break;
-            case mbench::Commands::T3:
-                trans = "T3";
-                break;
-            case mbench::Commands::T5:
-                trans = "T5";
-                break;
-            case mbench::Commands::Q1:
-                trans = "Q1";
-                break;
-            case mbench::Commands::Q2:
-                trans = "Q2";
-                break;
-            case mbench::Commands::Q3:
-                trans = "Q3";
-                break;
-            case mbench::Commands::Q4:
-                trans = "Q4";
-                break;
-            case mbench::Commands::Q5:
-                trans = "Q5";
-                break;
-            }
+            std::string trans = cmdString(e.transaction);
             std::string success = e.success ? "true" : "false";
             std::string msg(e.error.data(), e.error.size());
             sqlOk(sqlite3_bind_int(stmt, 1, start));
             sqlOk(sqlite3_bind_int(stmt, 2, end));
             sqlOk(sqlite3_bind_text(stmt, 3, trans.data(), trans.size(), nullptr));
             sqlOk(sqlite3_bind_text(stmt, 4, success.data(), success.size(), nullptr));
-            sqlOk(sqlite3_bind_text(stmt, 4, msg.data(), msg.size(), nullptr));
+            sqlOk(sqlite3_bind_text(stmt, 5, msg.data(), msg.size(), nullptr));
             int s;
             while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
                 if (s == SQLITE_ERROR) {
                     throw std::runtime_error(sqlite3_errmsg(db));
                 }
             }
+            sqlite3_reset(stmt);
         }
     }
+    sqlOk(sqlite3_exec(db, "END TRANSACTION", nullptr, nullptr, nullptr));
     sqlOk(sqlite3_finalize(stmt));
 
     std::cout << "Inserted data, calculating results...\n";
     std::string getPutTP = (boost::format(
             "SELECT count(*)/%1% "
-            "FROM result "
-            "WHERE name LIKE 'T%' "
-            "AND start >= 60000 AND end <= 360000 AND success = 'true'"
+            "FROM results "
+            "WHERE tx LIKE 'T%%' "
+            "AND start >= 60000 AND end <= 360000 AND success LIKE 'true'"
             ) % double((time - 1)*60)).str();
     std::string scanTP = (boost::format(
-            "SELECT count(*)/%!% "
-            "FROM result "
-            "WHERE name LIKE 'Q%' "
-            "AND start >= 60000 AND end <= 360000 AND success = 'true'"
+            "SELECT count(*)/%1% "
+            "FROM results "
+            "WHERE tx LIKE 'Q%%' "
+            "AND start >= 60000 AND end <= 360000 AND success LIKE 'true'"
             ) % double((time - 1)*60)).str();
     std::string responseTime = (boost::format(
-            "SELECT name, avg(end-start) "
-            "FROM result "
-            "WHERE start >= 60000 AND end <= 360000 AND success = 'true' "
-            "GROUP BY name;"
+            "SELECT tx, avg(end-start) "
+            "FROM results "
+            "WHERE start >= 60000 AND end <= 360000 AND success LIKE 'true' "
+            "GROUP BY tx;"
             )).str();
     std::cout << "Get/Put throughput:\n";
     std::cout << "===================\n";
     sqlOk(sqlite3_prepare_v2(db, getPutTP.data(), getPutTP.size() + 1, &stmt, nullptr));
     int s;
-    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         double tp = sqlite3_column_double(stmt, 0);
         std::cout << tp << " /second\n";
@@ -249,7 +265,7 @@ int main(int argc, const char* argv[]) {
     sqlOk(sqlite3_prepare_v2(db, scanTP.data(), scanTP.size() + 1, &stmt, nullptr));
     std::cout << "Scan throughput:\n";
     std::cout << "================\n";
-    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         double tp = sqlite3_column_double(stmt, 0);
         std::cout << tp << " /second\n";
@@ -258,11 +274,12 @@ int main(int argc, const char* argv[]) {
     sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
     std::cout << "Response Times:\n";
     std::cout << "================\n";
-    while ((s = sqlite3_step(stmt)) != SQLITE_OK) {
+    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         auto name = sqlite3_column_text(stmt, 0);
         double rt = sqlite3_column_double(stmt, 1);
         std::cout << name << ": " << rt << std::endl;
     }
     std::cout << "done";
+    sqlite3_close(db);
 }
