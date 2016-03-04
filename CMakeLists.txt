@@ -4,7 +4,7 @@ project(microbenchmark)
 # Set CMake modules path
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-find_package(Boost REQUIRED COMPONENTS system program_options)
+find_package(Boost 1.60 REQUIRED COMPONENTS system program_options)
 find_package(Crossbow REQUIRED COMPONENTS logger)
 find_package(Jemalloc REQUIRED)
 

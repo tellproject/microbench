@@ -177,6 +177,7 @@ void Client::doRun() {
             l.transaction = Commands::T1;
             l.start = now;
             l.end = end;
+            l.responseTime = res.responseTime;
             mBaseInsert = res.lastInsert;
             mLog.emplace_back(std::move(l));
             doRun();
