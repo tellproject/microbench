@@ -67,6 +67,9 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
     for (unsigned i = 0; i < numAsioThreads - 1; ++i) {
         threads.emplace_back([&service](){ service.run(); });
     }
+    service.post([](){
+        std::cout << "Started mbench server\n";
+    });
     service.run();
     for (auto& t: threads) {
         t.join();
