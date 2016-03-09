@@ -66,6 +66,7 @@ int main(int argc, const char* argv[]) {
                     ("storage", po::value<std::string>()->required(), "List of storage nodes")
                     ("network-threads", po::value<unsigned>()->required()->default_value(3),
                         "Number of Infinio threads")
+                    ("max-batch-size,m", po::value<size_t>()->default_value(16ull), "Maximum batch-size (TellStore)")
                     ;
             }, [](po::variables_map& vm, tell::store::ClientConfig& config) {
                 auto commitManager = vm["commit-manager"].as<std::string>();
@@ -73,6 +74,7 @@ int main(int argc, const char* argv[]) {
                 config.commitManager = tell::store::ClientConfig::parseCommitManager(commitManager);
                 config.tellStore = tell::store::ClientConfig::parseTellStore(storageNodes);
                 config.numNetworkThreads = vm["network-threads"].as<unsigned>();
+                config.maxBatchSize = vm["max-batch-size"].as<size_t>();
             });
 }
 
