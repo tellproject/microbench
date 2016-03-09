@@ -81,28 +81,28 @@ private:
             auto& field = fixedSized[i];
             switch (field.name()[0]) {
             case 'A':
-                mFieldIds[0 + occ[0]++] = i;
+                mFieldIds[0 + 10*occ[0]++] = i;
                 break;
             case 'B':
-                mFieldIds[1 + occ[1]++] = i;
+                mFieldIds[1 + 10*occ[1]++] = i;
                 break;
             case 'C':
-                mFieldIds[2 + occ[2]++] = i;
+                mFieldIds[2 + 10*occ[2]++] = i;
                 break;
             case 'D':
-                mFieldIds[3 + occ[3]++] = i;
+                mFieldIds[3 + 10*occ[3]++] = i;
                 break;
             case 'E':
-                mFieldIds[4 + occ[4]++] = i;
+                mFieldIds[4 + 10*occ[4]++] = i;
                 break;
             case 'F':
-                mFieldIds[5 + occ[5]++] = i;
+                mFieldIds[5 + 10*occ[5]++] = i;
                 break;
             case 'G':
-                mFieldIds[6 + occ[6]++] = i;
+                mFieldIds[6 + 10*occ[6]++] = i;
                 break;
             case 'H':
-                mFieldIds[7 + occ[7]++] = i;
+                mFieldIds[7 + 10*occ[7]++] = i;
                 break;
             default:
                 throw std::runtime_error((boost::format("Unexpected field %1%") % field.name()).str().c_str());
@@ -112,10 +112,10 @@ private:
             auto& field = varSized[i - fixedSized.size()];
             switch (field.name()[0]) {
             case 'I':
-                mFieldIds[8 + occ[8]++] = i;
+                mFieldIds[8 + 10*occ[8]++] = i;
                 break;
             case 'J':
-                mFieldIds[9 + occ[9]++] = i;
+                mFieldIds[9 + 10*occ[9]++] = i;
                 break;
             default:
                 throw std::runtime_error((boost::format("Unexpected field %1%") % field.name()).str().c_str());
@@ -211,12 +211,16 @@ public:
     }
 
     void insert(uint64_t key, Tuple value) {
-        std::unordered_map<crossbow::string, tell::db::Field> map;
-        map.reserve(value.size());
+        auto insTuple = mTx.newTuple(tableId());
         for (unsigned i = 0; i < value.size(); ++i) {
-            map.emplace(nameOfCol(i), value[i]);
+            insTuple[idOfPos(i)] = value[i];
         }
-        mTx.insert(tableId(), tell::db::key_t{key}, map);
+#ifndef NDEBUG
+        for (id_t i = 0; i < insTuple.count(); ++i) {
+            assert(!insTuple[i].null());
+        }
+#endif
+        mTx.insert(tableId(), tell::db::key_t{key}, insTuple);
     }
 
     void createSchema(unsigned numCols, unsigned sf) {

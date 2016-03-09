@@ -50,6 +50,7 @@ private:
     boost::asio::io_service::strand& mIOStrand;
     crossbow::protocol::Client<Commands, Signature> mClient;
     unsigned mSf;
+    uint64_t mNumTuples;
     bool mTimer = false;
     Clock::time_point mStartTime;
     Clock::time_point mEndTime;
@@ -79,6 +80,7 @@ public:
         , mIOStrand(ioStrand)
         , mClient(mSocket)
         , mSf(sf)
+        , mNumTuples(sf * 1024 * 1024)
         , mStartTime(Clock::now())
         , mRnd(std::random_device()())
         , mDist(0, analytical ? 4 : 3)

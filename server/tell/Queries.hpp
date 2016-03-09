@@ -121,7 +121,7 @@ struct Q4<Server, Connection, Transaction> {
     void operator() (Transaction& tx) {
         auto fun = scanContext.rndFun();
         auto ai = tx.idOfPos(scanContext.template rndCol<'A'>());
-        auto ki = tx.idOfPos(scanContext.template rndCol<'K'>());
+        auto ki = tx.idOfPos(scanContext.template rndCol<'J'>());
         tell::db::Aggregation query(tx.tableId(), {{fun, ai}});
         const auto& syllable = scanContext.rndSyllable();
 
@@ -145,7 +145,7 @@ struct Q5<Server, Connection, Transaction> {
     void operator() (Transaction& tx) {
         auto fun = scanContext.rndFun();
         auto ai = tx.idOfPos(scanContext.template rndCol<'A'>());
-        auto ki = tx.idOfPos(scanContext.template rndCol<'K'>());
+        auto ki = tx.idOfPos(scanContext.template rndCol<'J'>());
         tell::db::Aggregation query(tx.tableId(), {{fun, ai}});
         const auto& syllable = scanContext.rndSyllable();
 

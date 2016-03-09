@@ -56,7 +56,6 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
         std::terminate();
     }
     setup(vm, config);
-    --numAsioThreads;
     io_service service;
     ip::tcp::acceptor acceptor(service, ip::tcp::endpoint(ip::tcp::v4(), port));
 
@@ -64,8 +63,8 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
 
     mbench::accept<Connection, Transaction>(acceptor, connection, n);
     std::vector<std::thread> threads;
-    threads.reserve(numAsioThreads);
-    for (unsigned i = 0; i < numAsioThreads; ++i) {
+    threads.reserve(numAsioThreads - 1);
+    for (unsigned i = 0; i < numAsioThreads - 1; ++i) {
         threads.emplace_back([&service](){ service.run(); });
     }
     service.run();

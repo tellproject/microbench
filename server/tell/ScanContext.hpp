@@ -38,7 +38,7 @@ struct ScanContext<Server, Connection, Transaction>
 
     ScanContext(Server<Connection, Transaction>& server)
         : server(server)
-        , memoryManager(server.mConnection.newScanMemoryManager(server.mConnection.storageCount(), 1024))
+        , memoryManager(server.mConnection.newScanMemoryManager(server.mConnection.storageCount(), 8*1024))
     {}
 
     constexpr tell::store::AggregationType sum() const {

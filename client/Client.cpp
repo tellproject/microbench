@@ -92,6 +92,7 @@ void checkResult(
 
 uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId) {
     auto p = numTuples(sf) - 1;
+    if (numClients == 0) return 0;
     while (p % numClients != clientId) {
         --p;
     }
@@ -116,10 +117,16 @@ void Client::populate(uint64_t start, uint64_t end) {
         assertOk(*this, res, Commands::Populate);
         auto p = populated.fetch_add(100) + 100;
         auto l = lastReported.load();
-        if (p > 10000 && lastReported < p - 10000 && lastReported.compare_exchange_strong(l, p)) {
-            auto msg = (boost::format("Populated %1% rows\n") % p).str();
-            mIOStrand.post([msg](){
-                std::cout << msg;
+        auto percentage = p*100/mNumTuples;
+        if (percentage != l * 100 / mNumTuples && lastReported.compare_exchange_strong(l, p)) {
+            mIOStrand.post([percentage](){
+                std::cout << '[';
+                for (unsigned i = 0; i < 100; ++i) {
+                    if (i < percentage) std::cout << '=';
+                    else std::cout << ' ';
+                }
+                std::cout << ']' << '\r';
+                std::cout.flush();
             });
         }
         populate(last, end);
@@ -256,6 +263,7 @@ void Client::doRunAnalytical() {
     auto fun = [this, now](const err_code& ec, const err_msg& res) {
         assertOk(*this, ec, mCurrent);
         assertOk(*this, res, mCurrent);
+        //std::cout << "Query done" << std::endl;
         auto end = Clock::now();
         LogEntry l;
         l.success = res.success;
@@ -265,6 +273,7 @@ void Client::doRunAnalytical() {
         l.end = end;
         l.responseTime = res.responseTime;
         mLog.emplace_back(std::move(l));
+        doRunAnalytical();
     };
     switch (rnd) {
     case 0:

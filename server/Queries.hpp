@@ -71,9 +71,10 @@ struct ContextBase {
         auto self = static_cast<Context*>(this);
         unsigned offset = C - 'A';
         unsigned n = static_cast<Context*>(this)->N();
-        if (n <= 10) return 0;
-        std::uniform_int_distribution<unsigned> dist(0, (n - 1)/10);
-        return dist(self->rnd()) * 10 + offset;
+        if (n < 10) return 0;
+        std::uniform_int_distribution<unsigned> dist(0, n/10 - 1);
+        unsigned c = n == 10 ? 0 : dist(self->rnd());
+        return c * 10 + offset;
     }
 
     const string& rndSyllable() {

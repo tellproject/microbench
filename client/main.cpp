@@ -195,6 +195,8 @@ int main(int argc, const char* argv[]) {
         t.join();
     }
     if (populate) {
+        std::cout << "                                                                                                      \r";
+        std::cout << "Done\n";
         return 0;
     }
     std::cout << "Done - writing results\n";
@@ -241,39 +243,46 @@ int main(int argc, const char* argv[]) {
             "FROM results "
             "WHERE tx LIKE 'T%%' "
             "AND start >= 60000000 AND end <= 360000000 AND success LIKE 'true'"
-            ) % double((time - 2)*60*1000)).str();
+            ) % double((time - 2)*60)).str();
     std::string scanTP = (boost::format(
             "SELECT count(*)/%1% "
             "FROM results "
             "WHERE tx LIKE 'Q%%' "
-            "AND start >= 60000 AND end <= 360000 AND success LIKE 'true'"
-            ) % double((time - 2)*60*1000)).str();
+            "AND start >= 60000000  AND end <= 360000000  AND success LIKE 'true'"
+            ) % double((time - 2))).str();
     std::string responseTime = (boost::format(
             "SELECT tx, avg(rt) "
             "FROM results "
             "WHERE start >= 60000000 AND end <= 360000000 AND success LIKE 'true' "
             "GROUP BY tx;"
             )).str();
+    std::cout << "================\n";
     std::cout << "Get/Put throughput:\n";
     std::cout << "===================\n";
+    std::cout << getPutTP << std::endl;
+    std::cout << "---------------------\n";
     sqlOk(sqlite3_prepare_v2(db, getPutTP.data(), getPutTP.size() + 1, &stmt, nullptr));
     int s;
     while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         double tp = sqlite3_column_double(stmt, 0);
-        std::cout << tp << " /second\n";
+        std::cout << tp << " / second\n";
     }
     sqlOk(sqlite3_finalize(stmt));
     sqlOk(sqlite3_prepare_v2(db, scanTP.data(), scanTP.size() + 1, &stmt, nullptr));
+    std::cout << "================\n";
     std::cout << "Scan throughput:\n";
     std::cout << "================\n";
+    std::cout << scanTP << std::endl;
+    std::cout << "---------------------\n";
     while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         double tp = sqlite3_column_double(stmt, 0);
-        std::cout << tp << " /second\n";
+        std::cout << tp << " / minute\n";
     }
     sqlOk(sqlite3_finalize(stmt));
     sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
+    std::cout << "================\n";
     std::cout << "Response Times:\n";
     std::cout << "================\n";
     while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {

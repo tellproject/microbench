@@ -111,7 +111,7 @@ public:
         std::array<std::pair<unsigned, Field>, 5> cols;
         std::uniform_int_distribution<unsigned> colDist(0, mN / 10 - 1);
         std::uniform_int_distribution<unsigned> boolDist(1, 10);
-        auto offset = mN == 10 ? 0 : colDist(mRnd) * mN;
+        auto offset = mN == 10 ? 0 : colDist(mRnd) * 10;
         // double col
         if (boolDist(mRnd) <= 5) {
             cols[0] = std::make_pair(offset, rand<0>());
@@ -224,34 +224,34 @@ public: // commands
         for (unsigned j = 0; j < mN; ++j) {
             switch (j % 10) {
             case 0:
-                t[0] = rand<0>();
+                t[j] = rand<0>();
                 break;
             case 1:
-                t[1] = rand<1>();
+                t[j] = rand<1>();
                 break;
             case 2:
-                t[2] = rand<2>();
+                t[j] = rand<2>();
                 break;
             case 3:
-                t[3] = rand<3>();
+                t[j] = rand<3>();
                 break;
             case 4:
-                t[4] = rand<4>();
+                t[j] = rand<4>();
                 break;
             case 5:
-                t[5] = rand<5>();
+                t[j] = rand<5>();
                 break;
             case 6:
-                t[6] = rand<6>();
+                t[j] = rand<6>();
                 break;
             case 7:
-                t[7] = rand<7>();
+                t[j] = rand<7>();
                 break;
             case 8:
-                t[8] = rand<8>();
+                t[j] = rand<8>();
                 break;
             case 9:
-                t[9] = rand<9>();
+                t[j] = rand<9>();
             }
         }
         return t;
@@ -277,7 +277,7 @@ public: // commands
                             % __LINE__
                             % ex.what()
                         ).str();
-                auto res = std::make_tuple(false, crossbow::string(ex.what()));
+                auto res = std::make_tuple(false, crossbow::string(errmsg.c_str()));
                 mService.post([callback, res]() {
                     callback(res);
                 });
@@ -456,7 +456,13 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                auto begin = Clock::now();
                 mQ1(tx);
+                auto end = Clock::now();
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -477,7 +483,13 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                auto begin = Clock::now();
                 mQ2(tx);
+                auto end = Clock::now();
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -498,7 +510,13 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                auto begin = Clock::now();
                 mQ3(tx);
+                auto end = Clock::now();
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -519,7 +537,13 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                auto begin = Clock::now();
                 mQ4(tx);
+                auto end = Clock::now();
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -540,7 +564,13 @@ public: // commands
             err_msg res;
             res.success = true;
             try {
+                auto begin = Clock::now();
                 mQ5(tx);
+                auto end = Clock::now();
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
+                mService.post([callback, res]() {
+                    callback(res);
+                });
             } catch (std::exception& ex) {
                 res.success = false;
                 res.msg = (boost::format("ERROR in (%1%:%2%): %3%")
