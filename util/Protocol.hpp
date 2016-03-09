@@ -27,7 +27,7 @@
 namespace mbench {
 using Clock = std::chrono::steady_clock;
 
-GEN_COMMANDS(Commands, (CreateSchema, Populate, T1, T2, T3, T5, Q1, Q2, Q3, Q4, Q5));
+GEN_COMMANDS(Commands, (CreateSchema, Populate, BatchOp, Q1, Q2, Q3, Q4, Q5));
 
 std::string cmdString(Commands cmd);
 
@@ -64,80 +64,39 @@ struct Signature<Commands::CreateSchema> {
     using result = std::tuple<bool, crossbow::string>;
 };
 
-template<>
-struct Signature<Commands::T1> {
-    struct arguments {
-        uint64_t baseInsertKey;
-        uint64_t numClients;
-    };
-    struct result {
-        using is_serializable = crossbow::is_serializable;
-        bool success;
-        crossbow::string msg;
-        uint64_t lastInsert;
-        long responseTime;
+struct BatchOp {
+    unsigned numOps;
+    double insertProb;
+    double deleteProb;
+    double updateProb;
+    unsigned clientId;
+    uint64_t numClients;
+    uint64_t baseInsertKey;
+    uint64_t baseDeleteKey;
+};
 
-        template<class Archiver>
-        void operator& (Archiver& ar) {
-            ar & success;
-            ar & msg;
-            ar & lastInsert;
-            ar & responseTime;
-        }
-    };
+struct BatchResult {
+    using is_serializable = crossbow::is_serializable;
+    bool success;
+    crossbow::string msg;
+    uint64_t baseInsertKey;
+    uint64_t baseDeleteKey;
+    long responseTime;
+
+    template<class Archiver>
+    void operator& (Archiver& ar) {
+        ar & success;
+        ar & msg;
+        ar & baseInsertKey;
+        ar & baseDeleteKey;
+        ar & responseTime;
+    }
 };
 
 template<>
-struct Signature<Commands::T2> {
-    struct arguments {
-        uint64_t baseInsertKey;
-        uint64_t baseDeleteKey;
-        uint64_t numClients;
-    };
-    struct result {
-        using is_serializable = crossbow::is_serializable;
-        bool success;
-        crossbow::string msg;
-        uint64_t lastDelete;
-        long responseTime;
-
-        template<class Archiver>
-        void operator& (Archiver& ar) {
-            ar & success;
-            ar & msg;
-            ar & lastDelete;
-            ar & responseTime;
-        }
-    };
-};
-
-template<>
-struct Signature<Commands::T3> {
-    struct arguments {
-        uint64_t baseInsertKey;
-        uint64_t baseDeleteKey;
-        uint64_t numClients;
-        uint64_t clientId;
-    };
-    struct result {
-        using is_serializable = crossbow::is_serializable;
-        bool success;
-        crossbow::string msg;
-        long responseTime;
-
-        template<class Archiver>
-        void operator& (Archiver& ar) {
-            ar & success;
-            ar & msg;
-            ar & responseTime;
-        }
-    };
-};
-
-template<>
-struct Signature<Commands::T5> {
-    using arguments = typename Signature<Commands::T3>::arguments;
-    using result = typename Signature<Commands::T3>::result;
+struct Signature<Commands::BatchOp> {
+    using arguments = BatchOp;
+    using result = BatchResult;
 };
 
 template<>

@@ -285,79 +285,6 @@ public: // commands
         });
     }
 
-    template<Commands C, class Callback>
-    typename std::enable_if<C == Commands::T1, void>::type
-    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
-        using res_type = typename Signature<C>::result;
-        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
-            std::vector<std::pair<uint64_t, typename Transaction::Tuple>> tuples;
-            tuples.reserve(100);
-            for (uint64_t i = 1; i <= 100ul; ++i) {
-                typename Transaction::Tuple t = Transaction::newTuple(mN);
-                tuples.emplace_back(args.baseInsertKey + i * args.numClients, createInsert());
-            }
-            auto start = Clock::now();
-            try {
-                for (auto& p : tuples) {
-                    tx.insert(p.first, p.second);
-                }
-                auto newBaseInsert = args.baseInsertKey + 100ul * args.numClients;
-                tx.commit();
-                auto end = Clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-                mService.post([callback, newBaseInsert, duration](){
-                    callback(res_type{true, "", newBaseInsert,
-                            duration});
-                });
-            } catch (std::exception& ex) {
-                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
-                            % __FILE__
-                            % __LINE__
-                            % ex.what()
-                        ).str();
-                crossbow::string msg(ex.what());
-                mService.post([callback, msg]() {
-                    callback(res_type{false, msg, 0ul});
-                });
-            }
-        });
-    }
-
-    template<Commands C, class Callback>
-    typename std::enable_if<C == Commands::T2, void>::type
-    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
-        using res_type = typename Signature<C>::result;
-        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
-            std::vector<uint64_t> keys(100);
-            for (uint64_t i = 0; i < 100ul; ++i) {
-                keys[i] = args.baseDeleteKey + i * args.numClients;
-            }
-            auto start = Clock::now();
-            try {
-                for (auto k : keys) {
-                    tx.remove(k);
-                }
-                tx.commit();
-                auto end = Clock::now();
-                auto newBaseDelete = args.baseDeleteKey + 100ul * args.numClients;
-                mService.post([callback, newBaseDelete, start, end](){
-                    callback(res_type{true, "", newBaseDelete,
-                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
-                });
-            } catch (std::exception& ex) {
-                crossbow::string errmsg = (boost::format("ERROR in %1%: %2% (bI: %3%, bD: %4%)")
-                            % cmdString(Commands::T2)
-                            % ex.what()
-                            % args.baseInsertKey
-                            % args.baseDeleteKey
-                        ).str();
-                mService.post([callback, errmsg]() {
-                    callback(res_type{false, errmsg, 0ul, 0ul});
-                });
-            }
-        });
-    }
-
     uint64_t rndKey(uint64_t baseInsertKey, uint64_t baseDeleteKey, unsigned numClients, unsigned clientId) {
         std::uniform_int_distribution<uint64_t> dist(baseDeleteKey, baseInsertKey);
         uint64_t k = dist(mRnd);
@@ -372,24 +299,70 @@ public: // commands
     }
 
     template<Commands C, class Callback>
-    typename std::enable_if<C == Commands::T3, void>::type
-    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
-        using res_type = typename Signature<C>::result;
-        mConnection.startTx(TxType::RO, [this, callback, args](Transaction& tx) {
-            std::vector<uint64_t> keys(100);
-            for (auto i = 1; i <= 100; ++i) {
-                keys[i - 1] = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
+    typename std::enable_if<C == Commands::BatchOp, void>::type
+    execute(const BatchOp& op, const Callback& callback) {
+        double getProb = 1.0 - op.insertProb - op.deleteProb - op.updateProb;
+        if (getProb < 0) {
+            throw std::runtime_error("Probabilities sum up to negative number");
+        }
+        auto txType = getProb == 1.0 ? TxType::RO : TxType::RW;
+        mConnection.startTx(txType, [this, callback, op](Transaction& tx) {
+            BatchResult res;
+            res.baseDeleteKey = op.baseDeleteKey;
+            res.baseInsertKey = op.baseInsertKey;
+            std::vector<uint64_t> getKeys(100);
+            std::vector<double> ops(op.numOps);
+            std::vector<uint64_t> deletes;
+            std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
+            std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
+            for (unsigned i = 0; i < ops.size(); ++i) {
+                ops[i] = rand<0>();
+                if (ops[i] < op.insertProb) {
+                    res.baseInsertKey += op.numClients;
+                    inserts.emplace_back(res.baseInsertKey, createInsert());
+                } else if (ops[i] < op.insertProb + op.updateProb) {
+                    auto k = rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId);
+                    if (mN == 1) {
+                        typename Transaction::UpdateOp update;
+                        update[0] = std::make_pair(0, rand<0>());
+                        updates.emplace_back(k, update);
+                    } else {
+                        updates.emplace_back(k, rndUpdate());
+                    }
+                } else if (ops[i] < op.insertProb + op.updateProb + op.deleteProb) {
+                    deletes.push_back(res.baseDeleteKey);
+                    res.baseDeleteKey += deletes.size()*op.numClients;
+                } else {
+                    getKeys.push_back(rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
+                }
+            }
+            for (auto& o : ops) {
+                o = rand<0>();
             }
             auto start = Clock::now();
+            auto insIter = inserts.begin();
+            auto delIter = deletes.begin();
+            auto getIter = getKeys.begin();
+            auto updIter = updates.begin();
             try {
-                for (auto k : keys) {
-                    tx.get(k);
+                for (auto o : ops) {
+                    if (o < op.insertProb) {
+                        tx.insert(insIter->first, insIter->second);
+                        ++insIter;
+                    } else if (o < op.insertProb + op.updateProb) {
+                        tx.update(updIter->first, updIter->second);
+                    } else if (o < op.insertProb + op.updateProb + op.deleteProb) {
+                        tx.remove(*delIter);
+                        ++delIter;
+                    } else {
+                        tx.get(*getIter);
+                        ++getIter;
+                    }
                 }
                 tx.commit();
-                auto end = Clock::now();
-                mService.post([callback, start, end](){
-                    callback(res_type{true, "",
-                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
+                res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
+                mService.post([callback, res]() {
+                    callback(res);
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -399,51 +372,7 @@ public: // commands
                         ).str();
                 crossbow::string msg(ex.what());
                 mService.post([callback, msg]() {
-                    callback(res_type{false, msg, 0ul});
-                });
-            }
-        });
-    }
-
-    template<Commands C, class Callback>
-    typename std::enable_if<C == Commands::T5, void>::type
-    execute(const typename Signature<C>::arguments& args, const Callback& callback) {
-        using res_type = typename Signature<C>::result;
-        mConnection.startTx(TxType::RW, [this, callback, args](Transaction& tx) {
-            std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
-            updates.reserve(100);
-            for (auto i = 0; i < 100; ++i) {
-                auto k = rndKey(args.baseInsertKey, args.baseDeleteKey, args.numClients, args.clientId);
-                if (mN == 1) {
-                    typename Transaction::UpdateOp update;
-                    update[0] = std::make_pair(0, rand<0>());
-                    updates.emplace_back(k, update);
-                } else {
-                    updates.emplace_back(k, rndUpdate());
-                }
-            }
-            auto start = Clock::now();
-            try {
-                for (auto& up : updates) {
-                    tx.update(up.first, up.second);
-                }
-                tx.commit();
-                auto end = Clock::now();
-                mService.post([callback, start, end](){
-                    callback(res_type{true, "",
-                            std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count()});
-                });
-            } catch (std::exception& ex) {
-                crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3% (bI: %4%, bD: %5%)")
-                            % __FILE__
-                            % __LINE__
-                            % ex.what()
-                            % args.baseInsertKey
-                            % args.baseDeleteKey
-                        ).str();
-                crossbow::string msg(ex.what());
-                mService.post([callback, msg]() {
-                    callback(res_type{false, msg, 0ul});
+                    callback(BatchResult{false, msg, 0ul, 0ul, 0ul});
                 });
             }
         });

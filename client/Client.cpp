@@ -167,91 +167,22 @@ void Client::doRun() {
     if (done(now)) {
         return;
     }
-    auto rnd = mDist(mRnd);
-    if (mBaseDelete + mNumClients*100 >= mBaseInsert)
-        rnd = 0;
-    switch (rnd) {
-    case 0:
-        mClient.execute<Commands::T1>([this, now](
-                    const err_code& ec,
-                    const typename Signature<Commands::T1>::result& res) {
-            assertOk(*this, ec, Commands::T1);
-            assertOk(*this, res, Commands::T1);
-            auto end = Clock::now();
-            LogEntry l;
-            l.success = res.success;
-            l.error = res.msg;
-            l.transaction = Commands::T1;
-            l.start = now;
-            l.end = end;
-            l.responseTime = res.responseTime;
-            mBaseInsert = res.lastInsert;
-            mLog.emplace_back(std::move(l));
-            doRun();
-        },
-        Signature<Commands::T1>::arguments{mBaseInsert, mNumClients});
-        break;
-    case 1:
-        mClient.execute<Commands::T2>([this, now](
-                    const err_code& ec,
-                    const typename Signature<Commands::T2>::result& res) {
-            assertOk(*this, ec, Commands::T2);
-            assertOk(*this, res, Commands::T2);
-            auto end = Clock::now();
-            LogEntry l;
-            l.success = res.success;
-            l.error = res.msg;
-            l.transaction = Commands::T2;
-            l.start = now;
-            l.end = end;
-            l.responseTime = res.responseTime;
-            mBaseDelete = res.lastDelete;
-            mLog.emplace_back(std::move(l));
-            doRun();
-        },
-        Signature<Commands::T2>::arguments{mBaseInsert, mBaseDelete, mNumClients});
-        break;
-    case 2:
-        mClient.execute<Commands::T3>([this, now](
-                    const err_code& ec,
-                    const typename Signature<Commands::T3>::result& res) {
-            assertOk(*this, ec, Commands::T3);
-            assertOk(*this, res, Commands::T3);
-            auto end = Clock::now();
-            LogEntry l;
-            l.success = res.success;
-            l.error = res.msg;
-            l.transaction = Commands::T3;
-            l.start = now;
-            l.end = end;
-            l.responseTime = res.responseTime;
-            mLog.emplace_back(std::move(l));
-            doRun();
-        },
-        Signature<Commands::T3>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
-        break;
-    case 3:
-        mClient.execute<Commands::T5>([this, now](
-                    const err_code& ec,
-                    const typename Signature<Commands::T5>::result& res) {
-            assertOk(*this, ec, Commands::T5);
-            assertOk(*this, res, Commands::T5);
-            auto end = Clock::now();
-            LogEntry l;
-            l.success = res.success;
-            l.error = res.msg;
-            l.transaction = Commands::T5;
-            l.start = now;
-            l.end = end;
-            l.responseTime = res.responseTime;
-            mLog.emplace_back(std::move(l));
-            doRun();
-        },
-        Signature<Commands::T5>::arguments{mBaseInsert, mBaseDelete, mNumClients, mClientId});
-        break;
-    default:
-        throw std::runtime_error("unexpected query");
-    }
+    mClient.execute<Commands::BatchOp>([this, now](const err_code& ec, const BatchResult& res){
+        assertOk(*this, ec, Commands::BatchOp);
+        assertOk(*this, res, Commands::BatchOp);
+        auto end = Clock::now();
+        LogEntry l;
+        l.success = res.success;
+        l.error = res.msg;
+        l.transaction = Commands::BatchOp;
+        l.start = now;
+        l.end = end;
+        l.responseTime = res.responseTime;
+        mBatchOp.baseInsertKey = res.baseInsertKey;
+        mBatchOp.baseDeleteKey = res.baseDeleteKey;
+        mLog.emplace_back(std::move(l));
+        doRun();
+    }, mBatchOp);
 }
 
 void Client::doRunAnalytical() {

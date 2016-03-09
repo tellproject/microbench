@@ -38,14 +38,8 @@ std::string cmdString(Commands cmd) {
         return "CreateSchema";
     case mbench::Commands::Populate:
         return "Populate";
-    case mbench::Commands::T1:
-        return "T1";
-    case mbench::Commands::T2:
-        return "T2";
-    case mbench::Commands::T3:
-        return "T3";
-    case mbench::Commands::T5:
-        return "T5";
+    case mbench::Commands::BatchOp:
+        return "BatchOp";
     case mbench::Commands::Q1:
         return "Q1";
     case mbench::Commands::Q2:

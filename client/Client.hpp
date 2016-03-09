@@ -64,6 +64,7 @@ private:
     unsigned mBaseInsert;
     unsigned mBaseDelete;
     Commands mCurrent;
+    BatchOp mBatchOp;
 private:
     void populate(uint64_t start, uint64_t end);
     bool done(const Clock::time_point& now);
@@ -75,7 +76,11 @@ public:
            , unsigned sf
            , unsigned numClients
            , unsigned clientId
-           , bool analytical)
+           , bool analytical
+           , unsigned numOps
+           , double insertProb
+           , double deleteProb
+           , double updateProb)
         : mSocket(service)
         , mIOStrand(ioStrand)
         , mClient(mSocket)
@@ -89,6 +94,7 @@ public:
         , mClientId(clientId)
         , mBaseInsert(calcBaseInsertKey(sf, numClients, clientId))
         , mBaseDelete(clientId)
+        , mBatchOp{numOps, insertProb, deleteProb, updateProb, numClients, mBaseInsert, mBaseDelete}
     {}
     ~Client() {
         if (mSocket.is_open()) mSocket.close();

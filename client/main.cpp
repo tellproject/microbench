@@ -39,14 +39,8 @@ std::string cmdString(Commands cmd) {
         return "CreateSchema";
     case mbench::Commands::Populate:
         return "Populate";
-    case mbench::Commands::T1:
-        return "T1";
-    case mbench::Commands::T2:
-        return "T2";
-    case mbench::Commands::T3:
-        return "T3";
-    case mbench::Commands::T5:
-        return "T5";
+    case mbench::Commands::BatchOp:
+        return "BatchOp";
     case mbench::Commands::Q1:
         return "Q1";
     case mbench::Commands::Q2:
@@ -92,6 +86,8 @@ int main(int argc, const char* argv[]) {
     bool populate = false;
     unsigned time = 5;
     unsigned numAnayltical;
+    unsigned numOps;
+    double insProb, delProb, updProb;
     std::string hostStr;
     std::string dbFile("out.db");
     po::options_description desc("Allowed options");
@@ -105,6 +101,10 @@ int main(int argc, const char* argv[]) {
         ("populate,P", "Run population instead of benchmark")
         ("db,o", po::value<std::string>(&dbFile), "Output to write to")
         ("time", po::value<unsigned>(&time), "Number of minutes to run")
+        ("batch-size,b", po::value<unsigned>(&numOps)->default_value(100), "Number of operations per batch")
+        ("inserts,i", po::value<double>(&insProb)->default_value(0.166), "Fraction of insert operations")
+        ("deletes,d", po::value<double>(&delProb)->default_value(0.166), "Fraction of delete operations")
+        ("update,u", po::value<double>(&updProb)->default_value(0.166), "Fraction of update operations")
         ;
 
     po::variables_map vm;
@@ -118,6 +118,10 @@ int main(int argc, const char* argv[]) {
         populate = true;
     }
     notify(vm);
+    if (insProb + updProb + delProb > 1.0) {
+        std::cerr << "sum(insert,delete,update) > 1.0\n";
+        return 1;
+    }
 
     time += 2;
 
@@ -147,9 +151,13 @@ int main(int argc, const char* argv[]) {
             bool a = j < analyticalClients[i];
             if (!a) {
                 allAnalytical = false;
-                clients.emplace_back(new mbench::Client(service, ioStrand, sf, numGetPutClients, clientId++, a));
+                clients.emplace_back(new mbench::Client(service, ioStrand, sf,
+                            numGetPutClients, clientId++, a, numOps, insProb,
+                            delProb, updProb));
             } else {
-                clients.emplace_back(new mbench::Client(service, ioStrand, sf, numGetPutClients, 0, a));
+                clients.emplace_back(new mbench::Client(service, ioStrand, sf,
+                            numGetPutClients, 0, a, numOps, insProb, delProb,
+                            updProb));
             }
             auto& client = *clients.back();
             boost::split(hostPort, hosts[i], boost::is_any_of(":"), boost::token_compress_on);
