@@ -39,9 +39,9 @@ struct Q1<Server, Connection, Transaction> {
 
     void operator() (Transaction& tx) {
         tell::db::Aggregation query(tx.tableId(),
-                {{scanContext.rndFun(),
-                tx.idOfPos(scanContext.template rndCol<'A'>())}});
-        auto iter = tx.transaction().scan(query, *scanContext.memoryManager);
+                {{tell::store::AggregationType::MAX,
+                tx.idOfPos(0)}});
+        auto iter = tx.transaction().scan(query, *scanMemoryManager);
         while (iter->hasNext()) {
             iter->nextChunk();
         }
@@ -59,14 +59,13 @@ struct Q2<Server, Connection, Transaction> {
     void operator() (Transaction& tx) {
         unsigned iU, jU;
         std::tie(iU,jU) = scanContext.template rndTwoCols<'A'>();
-        auto i = tx.idOfPos(iU);
-        auto j = tx.idOfPos(iU);
+        auto j = tx.idOfPos(7);
         tell::db::Aggregation query(tx.tableId(),
-                {{scanContext.rndFun(),
-                i}});
+                {{tell::store::AggregationType::MAX,
+                tx.idOfPos(0)}});
         query && std::make_tuple(tell::store::PredicateType::GREATER, j, tell::db::Field(double(0.0)))
               && std::make_tuple(tell::store::PredicateType::LESS, j, tell::db::Field(double(0.5)));
-        auto iter = tx.transaction().scan(query, *scanContext.memoryManager);
+        auto iter = tx.transaction().scan(query, *scanMemoryManager);
         while (iter->hasNext()) {
             iter->nextChunk();
         }
@@ -82,79 +81,15 @@ struct Q3<Server, Connection, Transaction> {
     {}
 
     void operator() (Transaction& tx) {
-        auto& rnd = scanContext.rnd();
-        auto fun = scanContext.rndFun();
-        auto ai = tx.idOfPos(scanContext.template rndCol<'A'>());
-        tell::db::Aggregation query(tx.tableId(), {{fun, ai}});
-        auto ci = tx.idOfPos(scanContext.template rndCol<'C'>());
-        auto di = tx.idOfPos(scanContext.template rndCol<'D'>());
-        auto ei = tx.idOfPos(scanContext.template rndCol<'E'>());
-        std::uniform_int_distribution<int32_t> cdist(0, 7500);
-        std::uniform_int_distribution<int16_t> ddist(0, 1);
-        std::uniform_int_distribution<int16_t> edist(0, 255);
-        auto c = cdist(rnd);
-        decltype(c) cupper = c + 500;
-        auto d = ddist(rnd);
-        auto e = edist(rnd);
-        auto dcond = std::make_tuple(tell::store::PredicateType::EQUAL, di, tell::db::Field(d));
-        auto econd = std::make_tuple(tell::store::PredicateType::EQUAL, ei, tell::db::Field(e));
-        auto clarger = std::make_tuple(tell::store::PredicateType::GREATER_EQUAL, ci, tell::db::Field(c));
-        auto csmaller = std::make_tuple(tell::store::PredicateType::GREATER_EQUAL, ci, tell::db::Field(cupper));
-
-        query && csmaller && clarger && dcond && econd;
-
-        auto iter = tx.transaction().scan(query, *scanContext.memoryManager);
+        auto f = tx.idOfPos(4);
+        tell::db::FullScan query(tx.tableId());
+        query && std::make_tuple(tell::store::PredicateType::GREATER, f, tell::db::Field(int16_t(0)))
+              && std::make_tuple(tell::store::PredicateType::LESS, f, tell::db::Field(int16_t(128)));
+        auto iter = tx.transaction().scan(query, *scanMemoryManager);
         while (iter->hasNext()) {
             iter->nextChunk();
         }
     }
 };
 
-template<template <class, class> class Server>
-struct Q4<Server, Connection, Transaction> {
-    ScanContext<Server, Connection, Transaction>& scanContext;
-
-    Q4(ScanContext<Server, Connection, Transaction>& scanContext)
-        : scanContext(scanContext)
-    {}
-
-    void operator() (Transaction& tx) {
-        auto fun = scanContext.rndFun();
-        auto ai = tx.idOfPos(scanContext.template rndCol<'A'>());
-        auto ki = tx.idOfPos(scanContext.template rndCol<'J'>());
-        tell::db::Aggregation query(tx.tableId(), {{fun, ai}});
-        const auto& syllable = scanContext.rndSyllable();
-
-        query && std::make_tuple(tell::store::PredicateType::PREFIX_LIKE, ki, tell::db::Field(syllable));
-
-        auto iter = tx.transaction().scan(query, *scanContext.memoryManager);
-        while (iter->hasNext()) {
-            iter->nextChunk();
-        }
-    }
-};
-
-template<template <class, class> class Server>
-struct Q5<Server, Connection, Transaction> {
-    ScanContext<Server, Connection, Transaction>& scanContext;
-
-    Q5(ScanContext<Server, Connection, Transaction>& scanContext)
-        : scanContext(scanContext)
-    {}
-
-    void operator() (Transaction& tx) {
-        auto fun = scanContext.rndFun();
-        auto ai = tx.idOfPos(scanContext.template rndCol<'A'>());
-        auto ki = tx.idOfPos(scanContext.template rndCol<'J'>());
-        tell::db::Aggregation query(tx.tableId(), {{fun, ai}});
-        const auto& syllable = scanContext.rndSyllable();
-
-        query && std::make_tuple(tell::store::PredicateType::POSTFIX_LIKE, ki, tell::db::Field(syllable));
-
-        auto iter = tx.transaction().scan(query, *scanContext.memoryManager);
-        while (iter->hasNext()) {
-            iter->nextChunk();
-        }
-    }
-};
 } // namespace mbench

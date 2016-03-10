@@ -219,14 +219,6 @@ void Client::doRunAnalytical() {
         mCurrent = Commands::Q3;
         mClient.execute<Commands::Q3>(fun);
         break;
-    case 3:
-        mCurrent = Commands::Q4;
-        mClient.execute<Commands::Q4>(fun);
-        break;
-    case 4:
-        mCurrent = Commands::Q5;
-        mClient.execute<Commands::Q5>(fun);
-        break;
     default:
         throw std::runtime_error("unexpected query");
     }

@@ -47,12 +47,8 @@ std::string cmdString(Commands cmd) {
         return "Q2";
     case mbench::Commands::Q3:
         return "Q3";
-    case mbench::Commands::Q4:
-        return "Q4";
-    case mbench::Commands::Q5:
-        return "Q5";
-    }
     throw std::runtime_error("Invalid command");
+    }
 }
 
 } // namespace mbench
@@ -301,4 +297,5 @@ int main(int argc, const char* argv[]) {
     }
     std::cout << "done";
     sqlite3_close(db);
+    return 0;
 }

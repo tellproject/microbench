@@ -46,13 +46,13 @@ std::string cmdString(Commands cmd) {
         return "Q2";
     case mbench::Commands::Q3:
         return "Q3";
-    case mbench::Commands::Q4:
-        return "Q4";
-    case mbench::Commands::Q5:
-        return "Q5";
     }
     throw std::runtime_error("Invalid command");
 }
+
+std::unique_ptr<tell::store::ScanMemoryManager> scanMemoryManager;
+std::mutex memoryManagerMutex;
+
 }
 
 int main(int argc, const char* argv[]) {

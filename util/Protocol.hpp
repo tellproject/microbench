@@ -27,7 +27,7 @@
 namespace mbench {
 using Clock = std::chrono::steady_clock;
 
-GEN_COMMANDS(Commands, (CreateSchema, Populate, BatchOp, Q1, Q2, Q3, Q4, Q5));
+GEN_COMMANDS(Commands, (CreateSchema, Populate, BatchOp, Q1, Q2, Q3));
 
 std::string cmdString(Commands cmd);
 
@@ -117,15 +117,4 @@ struct Signature<Commands::Q3> {
     using result = err_msg;
 };
 
-template<>
-struct Signature<Commands::Q4> {
-    using arguments = void;
-    using result = err_msg;
-};
-
-template<>
-struct Signature<Commands::Q5> {
-    using arguments = void;
-    using result = err_msg;
-};
 }

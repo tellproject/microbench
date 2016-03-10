@@ -94,10 +94,4 @@ struct Q2;
 template<template <class, class> class Server, class Connection, class Transaction>
 struct Q3;
 
-template<template <class, class> class Server, class Connection, class Transaction>
-struct Q4;
-
-template<template <class, class> class Server, class Connection, class Transaction>
-struct Q5;
-
 } // namespace mbench

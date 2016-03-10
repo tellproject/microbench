@@ -35,12 +35,14 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
     unsigned numAsioThreads = 1;
     short port = 8713;
     unsigned n = 10;
+    unsigned sf;
     options_description desc("Allowed options");
     desc.add_options()
         ("help,h", "Show help message")
         ("threads,t", value<unsigned>(&numAsioThreads)->default_value(1), "Number of asio threads")
         ("port,p", value<short>(&port)->default_value(8713), "Port to bind to")
         ("num-columns,n", value<unsigned>(&n)->default_value(10), "Number of columns of table")
+        ("scaling-factor,s", value<unsigned>(&sf)->required(), "Scaling factor")
         ;
     Config config;
     argFun(desc, config);
@@ -59,7 +61,7 @@ int mainFun(int argc, const char* argv[], const ArgFun& argFun, const SetupFun& 
     io_service service;
     ip::tcp::acceptor acceptor(service, ip::tcp::endpoint(ip::tcp::v4(), port));
 
-    Connection connection(config, service);
+    Connection connection(config, service, sf);
 
     mbench::accept<Connection, Transaction>(acceptor, connection, n);
     std::vector<std::thread> threads;

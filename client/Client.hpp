@@ -88,7 +88,7 @@ public:
         , mNumTuples(sf * 1024 * 1024)
         , mStartTime(Clock::now())
         , mRnd(std::random_device()())
-        , mDist(0, analytical ? 4 : 3)
+        , mDist(0, analytical ? 2 : 3)
         , mAnalytical(analytical)
         , mNumClients(numClients)
         , mClientId(clientId)

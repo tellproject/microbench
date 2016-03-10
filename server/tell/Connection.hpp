@@ -285,6 +285,9 @@ struct TransactionRunner {
     }
 };
 
+extern std::unique_ptr<tell::store::ScanMemoryManager> scanMemoryManager;
+extern std::mutex memoryManagerMutex;
+
 class Connection {
     tell::db::ClientManager<void> mClientManager;
     boost::asio::io_service& mService;
@@ -292,11 +295,22 @@ class Connection {
 public: // types
     using string_type = crossbow::string;
 public:
-    Connection(tell::store::ClientConfig& config, boost::asio::io_service& service)
+    Connection(tell::store::ClientConfig& config, boost::asio::io_service& service, unsigned sf)
         : mClientManager(config)
         , mService(service)
         , mNumStorages(config.tellStore.size())
-    {}
+    {
+        if (!scanMemoryManager) {
+            std::unique_lock<std::mutex> _(memoryManagerMutex);
+            if (!scanMemoryManager) {
+                size_t scanSize = size_t(sf)<<20;
+                scanSize *= 70;
+                size_t numStorages = storageCount();
+                auto n = mClientManager.newScanMemoryManager(numStorages, scanSize/numStorages);
+                scanMemoryManager.swap(n);
+            }
+        }
+    }
 
     template<class Callback>
     void startTx(mbench::TxType txType, const Callback& callback) {
