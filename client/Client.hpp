@@ -61,8 +61,6 @@ private:
     std::deque<LogEntry> mLog;
     unsigned mNumClients;
     unsigned mClientId;
-    unsigned mBaseInsert;
-    unsigned mBaseDelete;
     Commands mCurrent;
     BatchOp mBatchOp;
 private:
@@ -92,10 +90,19 @@ public:
         , mAnalytical(analytical)
         , mNumClients(numClients)
         , mClientId(clientId)
-        , mBaseInsert(calcBaseInsertKey(sf, numClients, clientId))
-        , mBaseDelete(clientId)
-        , mBatchOp{numOps, insertProb, deleteProb, updateProb, numClients, mBaseInsert, mBaseDelete}
-    {}
+    {
+        mBatchOp.numOps        = numOps;
+        mBatchOp.insertProb    = insertProb;
+        mBatchOp.deleteProb    = deleteProb;
+        mBatchOp.updateProb    = updateProb;
+        mBatchOp.clientId      = mClientId;
+        mBatchOp.numClients    = mNumClients;
+        mBatchOp.baseInsertKey = calcBaseInsertKey(sf, numClients, clientId);
+        mBatchOp.baseDeleteKey = clientId;
+        assert(mAnalytical ||
+                (mBatchOp.baseInsertKey > mBatchOp.baseDeleteKey && mBatchOp.baseInsertKey >= numTuples(mSf) - mNumClients));
+    }
+
     ~Client() {
         if (mSocket.is_open()) mSocket.close();
     }

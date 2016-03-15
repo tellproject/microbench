@@ -49,6 +49,7 @@ std::string cmdString(Commands cmd) {
         return "Q3";
     throw std::runtime_error("Invalid command");
     }
+    throw std::runtime_error("This has to be dead code");
 }
 
 } // namespace mbench
@@ -84,6 +85,7 @@ int main(int argc, const char* argv[]) {
     unsigned numAnayltical;
     unsigned numOps;
     double insProb, delProb, updProb;
+    bool noWarmup;
     std::string hostStr;
     std::string dbFile("out.db");
     po::options_description desc("Allowed options");
@@ -101,6 +103,7 @@ int main(int argc, const char* argv[]) {
         ("inserts,i", po::value<double>(&insProb)->default_value(0.166), "Fraction of insert operations")
         ("deletes,d", po::value<double>(&delProb)->default_value(0.166), "Fraction of delete operations")
         ("update,u", po::value<double>(&updProb)->default_value(0.166), "Fraction of update operations")
+        ("no-warmup", po::bool_switch(&noWarmup)->default_value(false), "No warm up time")
         ;
 
     po::variables_map vm;
@@ -119,7 +122,8 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
-    time += 2;
+    if (!noWarmup)
+        time += 2;
 
     std::vector<std::string> hosts;
     boost::split(hosts, hostStr, boost::is_any_of(";,"), boost::token_compress_on);
@@ -201,7 +205,6 @@ int main(int argc, const char* argv[]) {
     if (populate) {
         std::cout << "                                                                                                      \r";
         std::cout << "Done\n";
-        return 0;
     }
     std::cout << "Done - writing results\n";
     sqlOk(sqlite3_config(SQLITE_CONFIG_SINGLETHREAD));
@@ -242,24 +245,25 @@ int main(int argc, const char* argv[]) {
     sqlOk(sqlite3_finalize(stmt));
 
     std::cout << "Inserted data, calculating results...\n";
+    std::string cutWarmup = noWarmup ? "" : "start >= 60000000 AND end <= 360000000 AND success LIKE 'true'";
     std::string getPutTP = (boost::format(
             "SELECT count(*)/%1% "
             "FROM results "
-            "WHERE tx LIKE 'T%%' "
-            "AND start >= 60000000 AND end <= 360000000 AND success LIKE 'true'"
-            ) % double((time - 2)*60)).str();
+            "WHERE tx LIKE 'BatchOp' "
+            "AND %2%"
+            ) % double((time - 2)*60) % cutWarmup).str();
     std::string scanTP = (boost::format(
             "SELECT count(*)/%1% "
             "FROM results "
             "WHERE tx LIKE 'Q%%' "
-            "AND start >= 60000000  AND end <= 360000000  AND success LIKE 'true'"
-            ) % double((time - 2))).str();
+            "AND %2%"
+            ) % double((time - 2)) % cutWarmup).str();
     std::string responseTime = (boost::format(
             "SELECT tx, avg(rt) "
             "FROM results "
-            "WHERE start >= 60000000 AND end <= 360000000 AND success LIKE 'true' "
+            "WHERE %1% "
             "GROUP BY tx;"
-            )).str();
+            ) % cutWarmup).str();
     std::cout << "================\n";
     std::cout << "Get/Put throughput:\n";
     std::cout << "===================\n";
@@ -284,11 +288,12 @@ int main(int argc, const char* argv[]) {
         double tp = sqlite3_column_double(stmt, 0);
         std::cout << tp << " / minute\n";
     }
-    sqlOk(sqlite3_finalize(stmt));
-    sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
     std::cout << "================\n";
     std::cout << "Response Times:\n";
     std::cout << "================\n";
+    std::cout << responseTime << std::endl;
+    sqlOk(sqlite3_finalize(stmt));
+    sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
     while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
         if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
         auto name = sqlite3_column_text(stmt, 0);
