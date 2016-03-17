@@ -22,6 +22,7 @@
  */
 #include <server/Server.hpp>
 #include <server/main.hpp>
+#include <server/Queries.hpp>
 
 #include <kudu/client/client.h>
 #include <kudu/client/row_result.h>
@@ -32,6 +33,8 @@
 
 #define assertOk(s) kuduAssert(s, __FILE__, __LINE__)
 
+// KUDU helper functions
+
 void kuduAssert(kudu::Status status, const char* file, unsigned line) {
     if (!status.ok()) {
 
@@ -39,6 +42,117 @@ void kuduAssert(kudu::Status status, const char* file, unsigned line) {
                 % file % line % status.message().ToString().c_str()).str();
         throw std::runtime_error(msg);
     }
+}
+
+using namespace kudu;
+using namespace kudu::client;
+
+using ScannerList = std::vector<std::unique_ptr<KuduScanner>>;
+
+template<class T>
+struct is_string {
+    constexpr static bool value = false;
+};
+
+template<size_t S>
+struct is_string<char[S]> {
+    constexpr static bool value = true;
+};
+
+template<>
+struct is_string<const char*> {
+    constexpr static bool value = true;
+};
+
+template<>
+struct is_string<std::string> {
+    constexpr static bool value = true;
+};
+
+template<class T>
+struct CreateValue {
+    template<class U = T>
+    typename std::enable_if<std::is_integral<U>::value, KuduValue*>::type
+    create(U v) {
+        return KuduValue::FromInt(v);
+    }
+
+    template<class U = T>
+    typename std::enable_if<std::is_floating_point<U>::value, KuduValue*>::type
+    create(U v) {
+        return KuduValue::FromDouble(v);
+    }
+
+    template<class U = T>
+    typename std::enable_if<is_string<U>::value, KuduValue*>::type
+    create(const U& v) {
+        return KuduValue::CopyString(v);
+    }
+};
+
+
+template<class... P>
+struct PredicateAdder;
+
+template<class Key, class Value, class CompOp, class... Tail>
+struct PredicateAdder<Key, Value, CompOp, Tail...> {
+    PredicateAdder<Tail...> tail;
+    CreateValue<Value> creator;
+
+    void operator() (KuduTable& table, KuduScanner& scanner, const Key& key,
+            const Value& value, const CompOp& predicate, const Tail&... rest) {
+        assertOk(scanner.AddConjunctPredicate(table.NewComparisonPredicate(key, predicate, creator.template create<Value>(value))));
+        tail(table, scanner, rest...);
+    }
+};
+
+template<>
+struct PredicateAdder<> {
+    void operator() (KuduTable& table, KuduScanner& scanner) {
+    }
+};
+
+template<class... Args>
+void addPredicates(KuduTable& table, KuduScanner& scanner, const Args&... args) {
+    PredicateAdder<Args...> adder;
+    adder(table, scanner, args...);
+}
+
+// opens a scan an puts it in the scanner list, use an empty projection-vector for getting everything
+template<class... Args>
+KuduScanner &openScan(KuduTable& table, ScannerList& scanners, const std::vector<std::string> &projectionColumns, const Args&... args) {
+    scanners.emplace_back(new KuduScanner(&table));
+    auto& scanner = *scanners.back();
+    addPredicates(table, scanner, args...);
+    if (projectionColumns.size() > 0) {
+        assertOk(scanner.SetProjectedColumnNames(projectionColumns));
+    }
+    assertOk(scanner.Open());
+    return scanner;
+}
+
+void getField(KuduRowResult &row,  int columnIdx, int16_t &result) {
+    assertOk(row.GetInt16(columnIdx, &result));
+}
+
+void getField(KuduRowResult &row,  int columnIdx, int32_t &result) {
+    assertOk(row.GetInt32(columnIdx, &result));
+}
+
+void getField(KuduRowResult &row,  int columnIdx, int64_t &result) {
+    assertOk(row.GetInt64(columnIdx, &result));
+}
+
+void getField(KuduRowResult &row,  int columnIdx, double &result) {
+    assertOk(row.GetDouble(columnIdx, &result));
+}
+
+namespace mbench {
+
+static std::string nameOfCol(unsigned col) {
+    unsigned colNum = col + 1;
+    char name = 'A' + (col % 10);
+    return name + std::to_string(colNum);
 }
 
 class Transaction {
@@ -55,18 +169,11 @@ private:
         assertOk(mSession->SetFlushMode(kudu::client::KuduSession::MANUAL_FLUSH));
         return *mSession;
     }
-    kudu::client::KuduTable& table() {
-        if (!mTable) {
-            std::lock_guard<std::mutex> _(mMutex);
-            if (!mTable) {
-                assertOk(mClient.OpenTable("maintable", &mTable));
-            }
-        }
-        return *mTable;
-    }
+    
 public: // types
     using Field = boost::variant<int16_t, int32_t, int64_t, float, double, std::string>;
     using Tuple = std::vector<Field>;
+    using UpdateOp = std::array<std::pair<unsigned, Field>, 5>;
     class SetVisitor : public boost::static_visitor<> {
         kudu::KuduPartialRow& row;
         int idx;
@@ -102,21 +209,25 @@ public:
         return std::vector<Field>(n);
     }
 
-    template<class S>
-    void update(uint64_t key, unsigned n, S& server) {
+    kudu::client::KuduTable& table() {
+        if (!mTable) {
+            std::lock_guard<std::mutex> _(mMutex);
+            if (!mTable) {
+                assertOk(mClient.OpenTable("maintable", &mTable));
+            }
+        }
+        return *mTable;
+    }
+
+    void update(uint64_t key, const UpdateOp& up) {
         auto& table = this->table();
         std::unique_ptr<kudu::client::KuduUpdate> upd(table.NewUpdate());
         auto row = upd->mutable_row();
         assertOk(row->SetInt64(0, key));
-        if (n == 1) {
-            assertOk(row->SetDouble(1, server.template rand<0>()));
-        } else {
-            auto cols = server.rndUpdate();
-            SetVisitor visitor(*row);
-            for (auto& p : cols) {
-                visitor.setIdx(p.first);
-                boost::apply_visitor(visitor, p.second);
-            }
+        SetVisitor visitor(*row);
+        for (auto& p : up) {
+            visitor.setIdx(p.first);
+            boost::apply_visitor(visitor, p.second);
         }
         auto& session = this->session();
         assertOk(session.Apply(upd.release()));
@@ -143,13 +254,13 @@ public:
         assertOk(session.Apply(del.release()));
     }
 
-    void insert(uint64_t key, Tuple& value) {
+    void insert(uint64_t key, Tuple &value) {
         auto& table = this->table();
         std::unique_ptr<kudu::client::KuduInsert> ins(table.NewInsert());
         auto row = ins->mutable_row();
         SetVisitor visitor(*row);
         assertOk(row->SetInt64(0, key));
-        for (int i = 0; i < value.size(); ++i) {
+        for (uint i = 0; i < value.size(); ++i) {
             visitor.setIdx(i + 1);
             boost::apply_visitor(visitor, value[i + 1]);
         }
@@ -163,15 +274,14 @@ public:
         kudu::client::KuduSchema schema;
         kudu::client::KuduSchemaBuilder schemaBuilder;
 
+
         // Add primary
         auto col = schemaBuilder.AddColumn("P");
         col->NotNull()->Type(kudu::client::KuduColumnSchema::INT64);
         col->PrimaryKey();
 
         for (unsigned i = 0; i < numCols; ++i) {
-            unsigned colNum = i + 1;
-            char name = 'A' + (i % 10);
-            std::string colName = name + std::to_string(colNum);
+            std::string colName= nameOfCol(i);
             kudu::client::KuduColumnSchema::DataType type;
             switch (i % 10) {
             case 0:
@@ -216,7 +326,7 @@ public:
         auto numTablets = 8*servers.size();
         std::vector<const kudu::KuduPartialRow*> splits;
         auto increment = (sf * 1024*1024) / numTablets;
-        for (int64_t i = 0; i < numTablets; ++i) {
+        for (uint64_t i = 0; i < numTablets; ++i) {
             auto row = schema.NewRow();
             assertOk(row->SetInt64(0, i*increment));
             splits.emplace_back(row);
@@ -227,7 +337,7 @@ public:
     }
 
     void commit() {
-        if (mSession) {
+        if (mSession.get()) {
             assertOk(mSession->Flush());
         }
     }
@@ -242,7 +352,7 @@ class Connection {
 public: // types
     using string_type = std::string;
 public:
-    Connection(const ConnectionConfig& config, boost::asio::io_service&) {
+    Connection(const ConnectionConfig& config, boost::asio::io_service&, unsigned) {
         kudu::client::KuduClientBuilder builder;
         builder.add_master_server_addr(config.master);
         builder.Build(&mClient);
@@ -250,18 +360,149 @@ public:
 
     template<class Callback>
     void startTx(mbench::TxType txType, const Callback& callback) {
+        Transaction tx ((*mClient));
+        callback(tx);
     }
 };
 
+template<template <class, class> class Server>
+struct ScanContext<Server, Connection, Transaction>
+: public ContextBase<ScanContext<Server, Connection, Transaction>, unsigned, crossbow::string> {
+    using string = crossbow::string;
+    using AggregationFunction = unsigned;
+
+    Server<Connection, Transaction>& server;
+
+    ScanContext(Server<Connection, Transaction>& server)
+        : server(server)
+    {}
+
+    // dummy implemenations, need to be changed if necessary!!
+    constexpr unsigned sum() const {
+        return 0;
+    }
+
+    constexpr unsigned count() const {
+        return 0; 
+    }
+
+    constexpr unsigned min() const {
+        return 0; 
+    }
+
+    constexpr unsigned max() const {
+        return 0; 
+    }
+
+    std::mt19937_64& rnd() {
+        return server.mRnd;
+    }
+
+    unsigned N() const {
+        return server.N();
+    }
+
+    const string& rndSyllable() {
+        return server.rndSyllable();
+    }
+};
+
+template<template <class, class> class Server>
+struct Q1<Server, Connection, Transaction> {
+    ScanContext<Server, Connection, Transaction>& scanContext;
+
+    Q1(ScanContext<Server, Connection, Transaction>& scanContext)
+        : scanContext(scanContext)
+    {}
+
+    void operator() (Transaction& tx) {
+        std::vector<std::string> projection;
+        int maxColIdx = projection.size();
+        projection.push_back(nameOfCol(0));
+
+        ScannerList scanners;
+        std::vector<KuduRowResult> resultBatch;
+        KuduScanner &scanner = openScan(tx.table(), scanners, projection);
+        int64_t max = 0, val;
+        while (scanner.HasMoreRows()) {
+            assertOk(scanner.NextBatch(&resultBatch));
+            for (KuduRowResult row : resultBatch) {
+                getField(row, maxColIdx, val);
+                max = std::max(max, val);
+            }
+        }
+        tx.commit();
+    }
+};
+
+template<template <class, class> class Server>
+struct Q2<Server, Connection, Transaction> {
+    ScanContext<Server, Connection, Transaction>& scanContext;
+
+    Q2(ScanContext<Server, Connection, Transaction>& scanContext)
+        : scanContext(scanContext)
+    {}
+
+    void operator() (Transaction& tx) {
+        unsigned iU, jU;
+        std::tie(iU,jU) = scanContext.template rndTwoCols<'A'>();
+        std::vector<std::string> projection;
+        int maxColIdx = projection.size();
+        projection.push_back(nameOfCol(0));
+        std::string filterColName = nameOfCol(7);
+
+        ScannerList scanners;
+        std::vector<KuduRowResult> resultBatch;
+        KuduScanner &scanner = openScan(tx.table(), scanners, projection,
+                filterColName, double(0.0), KuduPredicate::GREATER_EQUAL,
+                filterColName, double(0.5), KuduPredicate::LESS_EQUAL);
+        int64_t max = 0, val;
+        while (scanner.HasMoreRows()) {
+            assertOk(scanner.NextBatch(&resultBatch));
+            for (KuduRowResult row : resultBatch) {
+                getField(row, maxColIdx, val);
+                max = std::max(max, val);
+            }
+        }
+        tx.commit();
+    }
+};
+
+template<template <class, class> class Server>
+struct Q3<Server, Connection, Transaction> {
+    ScanContext<Server, Connection, Transaction>& scanContext;
+
+    Q3(ScanContext<Server, Connection, Transaction>& scanContext)
+        : scanContext(scanContext)
+    {}
+
+    void operator() (Transaction& tx) {
+        std::vector<std::string> projection;
+        std::string filterColName = nameOfCol(4);
+
+        ScannerList scanners;
+        std::vector<KuduRowResult> resultBatch;
+        KuduScanner &scanner = openScan(tx.table(), scanners, projection,
+                filterColName, int16_t(0), KuduPredicate::GREATER_EQUAL,
+                filterColName, int16_t(128), KuduPredicate::LESS_EQUAL);
+        while (scanner.HasMoreRows()) {
+            assertOk(scanner.NextBatch(&resultBatch));
+        }
+        tx.commit();
+    }
+};
+
+} // namespace mbench
+
 int main(int argc, const char* argv[]) {
     namespace po = boost::program_options;
-    return mbench::mainFun<Connection, Transaction, ConnectionConfig>(argc, argv,
-            [](po::options_description& desc, ConnectionConfig& config) {
+    return mbench::mainFun<mbench::Connection, mbench::Transaction, mbench::ConnectionConfig>(argc, argv,
+            [](po::options_description& desc, mbench::ConnectionConfig& config) {
                 desc.add_options()
                     ("master,c",
                         po::value<std::string>(&config.master)->required(),
                         "Address to kudu master")
                     ;
-            }, [](po::variables_map& vm, ConnectionConfig& config) {
+            }, [](po::variables_map& vm, mbench::ConnectionConfig& config) {
             });
 }

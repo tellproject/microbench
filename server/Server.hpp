@@ -261,7 +261,8 @@ public: // commands
         mConnection.startTx(TxType::RW, [this, callback, start, end](Transaction& tx) {
             try {
                 for (uint64_t i = start; i < end; ++i) {
-                    tx.insert(i, createInsert());
+                    auto tuple = createInsert();
+                    tx.insert(i,tuple); 
                 }
                 tx.commit();
                 mService.post([callback](){

@@ -210,7 +210,7 @@ public:
         mUpdate.emplace_back(key, up);
     }
 
-    void insert(uint64_t key, Tuple value) {
+    void insert(uint64_t key, Tuple& value) {
         auto insTuple = mTx.newTuple(tableId());
         for (unsigned i = 0; i < value.size(); ++i) {
             insTuple[idOfPos(i)] = value[i];
