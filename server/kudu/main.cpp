@@ -254,7 +254,7 @@ public:
         assertOk(session.Apply(del.release()));
     }
 
-    void insert(uint64_t key, Tuple &value) {
+    void insert(uint64_t key, const Tuple &value) {
         auto& table = this->table();
         std::unique_ptr<kudu::client::KuduInsert> ins(table.NewInsert());
         auto row = ins->mutable_row();

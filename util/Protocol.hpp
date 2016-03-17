@@ -55,7 +55,7 @@ struct Signature;
 template<>
 struct Signature<Commands::Populate> {
     using arguments = std::tuple<uint64_t, uint64_t>;
-    using result = std::tuple<bool, crossbow::string>;
+    using result = std::tuple<bool, crossbow::string, long>;
 };
 
 template<>

@@ -260,13 +260,18 @@ public: // commands
         uint64_t end = std::get<1>(args);
         mConnection.startTx(TxType::RW, [this, callback, start, end](Transaction& tx) {
             try {
+                std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
                 for (uint64_t i = start; i < end; ++i) {
-                    auto tuple = createInsert();
-                    tx.insert(i,tuple); 
+                    inserts.emplace_back(start, createInsert());
+                }
+                auto start = Clock::now();
+                for (const auto& ins : inserts) {
+                    tx.insert(ins.first, ins.second);
                 }
                 tx.commit();
-                mService.post([callback](){
-                    callback(std::make_tuple(true, std::string("")));
+                auto responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
+                mService.post([callback, responseTime](){
+                    callback(std::make_tuple(true, std::string(""), responseTime));
                 });
             } catch (std::exception& ex) {
                 crossbow::string errmsg = (boost::format("ERROR in (%1%:%2%): %3%")
@@ -274,7 +279,7 @@ public: // commands
                             % __LINE__
                             % ex.what()
                         ).str();
-                auto res = std::make_tuple(false, crossbow::string(errmsg.c_str()));
+                auto res = std::make_tuple(false, crossbow::string(errmsg.c_str()), 0l);
                 mService.post([callback, res]() {
                     callback(res);
                 });
@@ -299,55 +304,60 @@ public: // commands
     typename std::enable_if<C == Commands::BatchOp, void>::type
     execute(const BatchOp& op, const Callback& callback) {
         double getProb = 1.0 - op.insertProb - op.deleteProb - op.updateProb;
-        if (getProb < 0) {
-            throw std::runtime_error("Probabilities sum up to negative number");
-        }
         auto txType = getProb == 1.0 ? TxType::RO : TxType::RW;
-        mConnection.startTx(txType, [this, callback, op](Transaction& tx) {
-            BatchResult res;
-            res.baseDeleteKey = op.baseDeleteKey;
-            res.baseInsertKey = op.baseInsertKey;
-            std::vector<uint64_t> getKeys(100);
-            std::vector<double> ops(op.numOps);
-            std::vector<uint64_t> deletes;
-            std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
-            std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
-            for (unsigned i = 0; i < ops.size(); ++i) {
-                ops[i] = rand<0>();
-                if (ops[i] < op.insertProb) {
-                    res.baseInsertKey += op.numClients;
-                    inserts.emplace_back(res.baseInsertKey, createInsert());
-                } else if (ops[i] < op.insertProb + op.updateProb) {
-                    auto k = rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId);
-                    if (mN == 1) {
-                        typename Transaction::UpdateOp update;
-                        update[0] = std::make_pair(0, rand<0>());
-                        updates.emplace_back(k, update);
-                    } else {
-                        updates.emplace_back(k, rndUpdate());
-                    }
-                } else if (ops[i] < op.insertProb + op.updateProb + op.deleteProb) {
-                    deletes.push_back(res.baseDeleteKey);
-                    res.baseDeleteKey += deletes.size()*op.numClients;
-                } else {
-                    getKeys.push_back(rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
-                }
-            }
-            for (auto& o : ops) {
-                o = rand<0>();
-            }
-            auto start = Clock::now();
-            auto insIter = inserts.begin();
-            auto delIter = deletes.begin();
-            auto getIter = getKeys.begin();
-            auto updIter = updates.begin();
+        mConnection.startTx(txType, [this, callback, op, getProb](Transaction& tx) {
             try {
+                if (getProb < 0.0) {
+                    std::cerr << "Probabilities sum up to negative number\n";
+                    throw std::runtime_error("Probabilities sum up to negative number");
+                }
+                BatchResult res;
+                res.baseDeleteKey = op.baseDeleteKey;
+                res.baseInsertKey = op.baseInsertKey;
+                std::vector<double> ops(op.numOps);
+                std::vector<uint64_t> getKeys;
+                std::vector<uint64_t> deletes;
+                std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
+                std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
+                for (unsigned i = 0; i < ops.size(); ++i) {
+                    ops[i] = rand<0>();
+                    if (ops[i] < op.insertProb) {
+                        res.baseInsertKey += op.numClients;
+                        inserts.emplace_back(res.baseInsertKey, createInsert());
+                    } else if (ops[i] < op.insertProb + op.updateProb) {
+                        auto k = rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId);
+                        if (mN == 1) {
+                            typename Transaction::UpdateOp update;
+                            update[0] = std::make_pair(0, rand<0>());
+                            updates.emplace_back(k, update);
+                        } else {
+                            updates.emplace_back(k, rndUpdate());
+                        }
+                    } else if (ops[i] < op.insertProb + op.updateProb + op.deleteProb) {
+                        if (res.baseDeleteKey + op.numClients >= res.baseInsertKey) {
+                            ops[i] = -1.0; // enforce insert
+                            res.baseInsertKey += op.numClients;
+                            inserts.emplace_back(res.baseInsertKey, createInsert());
+                        } else {
+                            deletes.push_back(res.baseDeleteKey);
+                            res.baseDeleteKey += op.numClients;
+                        }
+                    } else {
+                        getKeys.push_back(rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
+                    }
+                }
+                auto start = Clock::now();
+                auto insIter = inserts.begin();
+                auto delIter = deletes.begin();
+                auto getIter = getKeys.begin();
+                auto updIter = updates.begin();
                 for (auto o : ops) {
                     if (o < op.insertProb) {
                         tx.insert(insIter->first, insIter->second);
                         ++insIter;
                     } else if (o < op.insertProb + op.updateProb) {
                         tx.update(updIter->first, updIter->second);
+                        ++updIter;
                     } else if (o < op.insertProb + op.updateProb + op.deleteProb) {
                         tx.remove(*delIter);
                         ++delIter;
@@ -358,6 +368,7 @@ public: // commands
                 }
                 tx.commit();
                 res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
+                res.success = true;
                 mService.post([callback, res]() {
                     callback(res);
                 });
@@ -367,9 +378,8 @@ public: // commands
                             % __LINE__
                             % ex.what()
                         ).str();
-                crossbow::string msg(ex.what());
-                mService.post([callback, msg]() {
-                    callback(BatchResult{false, msg, 0ul, 0ul, 0ul});
+                mService.post([callback, errmsg]() {
+                    callback(BatchResult{false, errmsg, 0ul, 0ul, 0ul});
                 });
             }
         });

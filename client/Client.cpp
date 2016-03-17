@@ -46,11 +46,12 @@ struct result_check {
     }
 };
 
-template<>
-struct result_check<std::tuple<bool, crossbow::string>> {
+template<class... T>
+struct result_check<std::tuple<bool, crossbow::string, T...>> {
+    using errT = std::tuple<bool, crossbow::string, T...>;
     static void check(
             const Client& client,
-            const std::tuple<bool, crossbow::string>& result,
+            const errT& result,
             Commands cmd,
             const crossbow::string& file,
             unsigned line) {
@@ -112,9 +113,19 @@ void Client::populate(uint64_t start, uint64_t end) {
     }
     using result = Signature<Commands::Populate>::result;
     uint64_t last = std::min(start + 100, end);
-    mClient.execute<Commands::Populate>([this, last, end] (const err_code& ec, const result& res) {
+    auto now = Clock::now();
+    mClient.execute<Commands::Populate>([this, last, end, now] (const err_code& ec, const result& res) {
         assertOk(*this, ec, Commands::Populate);
         assertOk(*this, res, Commands::Populate);
+        auto tEnd = Clock::now();
+        LogEntry lE;
+        lE.success = true;
+        lE.error = "";
+        lE.transaction = Commands::Populate;
+        lE.responseTime = std::get<2>(res);
+        lE.start = now;
+        lE.end = tEnd;
+        mLog.emplace_back(std::move(lE));
         auto p = populated.fetch_add(100) + 100;
         auto l = lastReported.load();
         auto percentage = p*100/mNumTuples;

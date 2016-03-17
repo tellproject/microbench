@@ -188,9 +188,9 @@ public:
     }
 
     void commit() {
-        execDeletions();
-        execUpdates();
         execGets();
+        execUpdates();
+        execDeletions();
         mTx.commit();
     }
 
@@ -210,7 +210,7 @@ public:
         mUpdate.emplace_back(key, up);
     }
 
-    void insert(uint64_t key, Tuple& value) {
+    void insert(uint64_t key, const Tuple& value) {
         auto insTuple = mTx.newTuple(tableId());
         for (unsigned i = 0; i < value.size(); ++i) {
             insTuple[idOfPos(i)] = value[i];
@@ -306,7 +306,9 @@ public:
                 size_t scanSize = size_t(sf)<<20;
                 scanSize *= 70;
                 size_t numStorages = storageCount();
-                auto n = mClientManager.newScanMemoryManager(numStorages, scanSize/numStorages);
+                size_t chunkSize = scanSize/numStorages;
+                chunkSize += chunkSize % 8 == 0 ? 0 : (8 - (chunkSize % 8));
+                auto n = mClientManager.newScanMemoryManager(numStorages, chunkSize);
                 scanMemoryManager.swap(n);
             }
         }
