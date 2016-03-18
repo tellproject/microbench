@@ -343,6 +343,9 @@ public:
     }
 };
 
+std::tr1::shared_ptr<kudu::client::KuduTable> Transaction::mTable;
+std::mutex Transaction::mMutex;
+
 struct ConnectionConfig {
     std::string master;
 };
