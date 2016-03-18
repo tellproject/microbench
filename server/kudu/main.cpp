@@ -37,8 +37,7 @@
 
 void kuduAssert(kudu::Status status, const char* file, unsigned line) {
     if (!status.ok()) {
-
-        std::string msg = (boost::format("Error (%1%:%2%): ")
+        std::string msg = (boost::format("Error (%1%:%2%): %3%")
                 % file % line % status.message().ToString().c_str()).str();
         throw std::runtime_error(msg);
     }
@@ -262,7 +261,7 @@ public:
         assertOk(row->SetInt64(0, key));
         for (uint i = 0; i < value.size(); ++i) {
             visitor.setIdx(i + 1);
-            boost::apply_visitor(visitor, value[i + 1]);
+            boost::apply_visitor(visitor, value[i]);
         }
         auto& session = this->session();
         assertOk(session.Apply(ins.release()));
@@ -334,6 +333,7 @@ public:
         creator->split_rows(splits);
 
         assertOk(creator->Create());
+        creator.reset(nullptr);
     }
 
     void commit() {
