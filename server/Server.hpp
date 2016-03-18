@@ -31,9 +31,89 @@
 
 namespace mbench {
 
+template<class Transaction>
+struct BatchOperation {
+    std::vector<double> ops;
+    std::vector<uint64_t> getKeys;
+    std::vector<uint64_t> deletes;
+    std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
+    std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
+    BatchResult res;
+
+    template<class Server>
+    TxType init(const BatchOp& op, Server& srv) {
+        double getProb = 1.0 - op.insertProb - op.deleteProb - op.updateProb;
+        return getProb == 1.0 ? TxType::RO : TxType::RW;
+        if (getProb < 0.0) {
+            std::cerr << "Probabilities sum up to negative number\n";
+            throw std::runtime_error("Probabilities sum up to negative number");
+        }
+        res.baseDeleteKey = op.baseDeleteKey;
+        res.baseInsertKey = op.baseInsertKey;
+        ops.clear();
+        ops.resize(op.numOps);
+        getKeys.clear();
+        deletes.clear();
+        inserts.clear();
+        updates.clear();
+
+        for (unsigned i = 0; i < ops.size(); ++i) {
+            ops[i] = srv.template rand<0>();
+            if (ops[i] < op.insertProb) {
+                res.baseInsertKey += op.numClients;
+                inserts.emplace_back(res.baseInsertKey, srv.createInsert());
+            } else if (ops[i] < op.insertProb + op.updateProb) {
+                auto k = srv.rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId);
+                if (srv.mN == 1) {
+                    typename Transaction::UpdateOp update;
+                    update[0] = std::make_pair(0, srv.template rand<0>());
+                    updates.emplace_back(k, update);
+                } else {
+                    updates.emplace_back(k, srv.rndUpdate());
+                }
+            } else if (ops[i] < op.insertProb + op.updateProb + op.deleteProb) {
+                if (res.baseDeleteKey + op.numClients >= res.baseInsertKey) {
+                    ops[i] = -1.0; // enforce insert
+                    res.baseInsertKey += op.numClients;
+                    inserts.emplace_back(res.baseInsertKey, srv.createInsert());
+                } else {
+                    deletes.push_back(res.baseDeleteKey);
+                    res.baseDeleteKey += op.numClients;
+                }
+            } else {
+                getKeys.push_back(srv.rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
+            }
+        }
+    }
+
+    void exec(const BatchOp& op, Transaction& tx) {
+        auto insIter = inserts.begin();
+        auto delIter = deletes.begin();
+        auto getIter = getKeys.begin();
+        auto updIter = updates.begin();
+        for (auto o : ops) {
+            if (o < op.insertProb) {
+                tx.insert(insIter->first, insIter->second);
+                ++insIter;
+            } else if (o < op.insertProb + op.updateProb) {
+                tx.update(updIter->first, updIter->second);
+                ++updIter;
+            } else if (o < op.insertProb + op.updateProb + op.deleteProb) {
+                tx.remove(*delIter);
+                ++delIter;
+            } else {
+                tx.get(*getIter);
+                ++getIter;
+            }
+        }
+        tx.commit();
+    }
+};
+
 template<class Connection, class Transaction>
 class Server {
     friend struct ScanContext<::mbench::Server, Connection, Transaction>;
+    friend struct BatchOperation<Transaction>;
     // Ultimate hack to make template instanciation more comfortable
     template<template <template <class, class> class, class, class> class T>
     using GetInstance = T<::mbench::Server, Connection, Transaction>;
@@ -46,6 +126,7 @@ private: // types
     using distf  = std::uniform_real_distribution<float>;
     using distd  = std::uniform_real_distribution<double>;
 private: // members
+    BatchOperation<Transaction> mBatchOp;
     boost::asio::io_service& mService;
     boost::asio::ip::tcp::socket mSocket;
     SERVER_TYPE(Commands, Server) mServer;
@@ -262,7 +343,7 @@ public: // commands
             try {
                 std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
                 for (uint64_t i = start; i < end; ++i) {
-                    inserts.emplace_back(start, createInsert());
+                    inserts.emplace_back(i, createInsert());
                 }
                 auto start = Clock::now();
                 for (const auto& ins : inserts) {
@@ -303,70 +384,11 @@ public: // commands
     template<Commands C, class Callback>
     typename std::enable_if<C == Commands::BatchOp, void>::type
     execute(const BatchOp& op, const Callback& callback) {
-        double getProb = 1.0 - op.insertProb - op.deleteProb - op.updateProb;
-        auto txType = getProb == 1.0 ? TxType::RO : TxType::RW;
-        mConnection.startTx(txType, [this, callback, op, getProb](Transaction& tx) {
+        mConnection.startTx(mBatchOp.init(op, *this), [this, callback, op](Transaction& tx) {
             try {
-                if (getProb < 0.0) {
-                    std::cerr << "Probabilities sum up to negative number\n";
-                    throw std::runtime_error("Probabilities sum up to negative number");
-                }
-                BatchResult res;
-                res.baseDeleteKey = op.baseDeleteKey;
-                res.baseInsertKey = op.baseInsertKey;
-                std::vector<double> ops(op.numOps);
-                std::vector<uint64_t> getKeys;
-                std::vector<uint64_t> deletes;
-                std::vector<std::pair<uint64_t, typename Transaction::Tuple>> inserts;
-                std::vector<std::pair<uint64_t, typename Transaction::UpdateOp>> updates;
-                for (unsigned i = 0; i < ops.size(); ++i) {
-                    ops[i] = rand<0>();
-                    if (ops[i] < op.insertProb) {
-                        res.baseInsertKey += op.numClients;
-                        inserts.emplace_back(res.baseInsertKey, createInsert());
-                    } else if (ops[i] < op.insertProb + op.updateProb) {
-                        auto k = rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId);
-                        if (mN == 1) {
-                            typename Transaction::UpdateOp update;
-                            update[0] = std::make_pair(0, rand<0>());
-                            updates.emplace_back(k, update);
-                        } else {
-                            updates.emplace_back(k, rndUpdate());
-                        }
-                    } else if (ops[i] < op.insertProb + op.updateProb + op.deleteProb) {
-                        if (res.baseDeleteKey + op.numClients >= res.baseInsertKey) {
-                            ops[i] = -1.0; // enforce insert
-                            res.baseInsertKey += op.numClients;
-                            inserts.emplace_back(res.baseInsertKey, createInsert());
-                        } else {
-                            deletes.push_back(res.baseDeleteKey);
-                            res.baseDeleteKey += op.numClients;
-                        }
-                    } else {
-                        getKeys.push_back(rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
-                    }
-                }
+                auto res = mBatchOp.res;
                 auto start = Clock::now();
-                auto insIter = inserts.begin();
-                auto delIter = deletes.begin();
-                auto getIter = getKeys.begin();
-                auto updIter = updates.begin();
-                for (auto o : ops) {
-                    if (o < op.insertProb) {
-                        tx.insert(insIter->first, insIter->second);
-                        ++insIter;
-                    } else if (o < op.insertProb + op.updateProb) {
-                        tx.update(updIter->first, updIter->second);
-                        ++updIter;
-                    } else if (o < op.insertProb + op.updateProb + op.deleteProb) {
-                        tx.remove(*delIter);
-                        ++delIter;
-                    } else {
-                        tx.get(*getIter);
-                        ++getIter;
-                    }
-                }
-                tx.commit();
+                mBatchOp.exec(op, tx);
                 res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - start).count();
                 res.success = true;
                 mService.post([callback, res]() {
