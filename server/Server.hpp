@@ -43,7 +43,6 @@ struct BatchOperation {
     template<class Server>
     TxType init(const BatchOp& op, Server& srv) {
         double getProb = 1.0 - op.insertProb - op.deleteProb - op.updateProb;
-        return getProb == 1.0 ? TxType::RO : TxType::RW;
         if (getProb < 0.0) {
             std::cerr << "Probabilities sum up to negative number\n";
             throw std::runtime_error("Probabilities sum up to negative number");
@@ -84,6 +83,7 @@ struct BatchOperation {
                 getKeys.push_back(srv.rndKey(res.baseInsertKey, res.baseDeleteKey, op.numClients, op.clientId));
             }
         }
+        return getProb == 1.0 ? TxType::RO : TxType::RW;
     }
 
     void exec(const BatchOp& op, Transaction& tx) {
