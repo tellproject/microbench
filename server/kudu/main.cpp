@@ -37,8 +37,7 @@
 
 void kuduAssert(kudu::Status status, const char* file, unsigned line) {
     if (!status.ok()) {
-
-        std::string msg = (boost::format("Error (%1%:%2%): ")
+        std::string msg = (boost::format("Error (%1%:%2%): %3%")
                 % file % line % status.message().ToString().c_str()).str();
         throw std::runtime_error(msg);
     }
@@ -167,6 +166,7 @@ private:
         }
         mSession = mClient.NewSession();
         assertOk(mSession->SetFlushMode(kudu::client::KuduSession::MANUAL_FLUSH));
+        mSession->SetTimeoutMillis(60000);
         return *mSession;
     }
     
@@ -262,7 +262,7 @@ public:
         assertOk(row->SetInt64(0, key));
         for (uint i = 0; i < value.size(); ++i) {
             visitor.setIdx(i + 1);
-            boost::apply_visitor(visitor, value[i + 1]);
+            boost::apply_visitor(visitor, value[i]);
         }
         auto& session = this->session();
         assertOk(session.Apply(ins.release()));
@@ -334,6 +334,7 @@ public:
         creator->split_rows(splits);
 
         assertOk(creator->Create());
+        creator.reset(nullptr);
     }
 
     void commit() {
@@ -426,7 +427,7 @@ struct Q1<Server, Connection, Transaction> {
         ScannerList scanners;
         std::vector<KuduRowResult> resultBatch;
         KuduScanner &scanner = openScan(tx.table(), scanners, projection);
-        int64_t max = 0, val;
+        double max = 0, val;
         while (scanner.HasMoreRows()) {
             assertOk(scanner.NextBatch(&resultBatch));
             for (KuduRowResult row : resultBatch) {
@@ -459,7 +460,7 @@ struct Q2<Server, Connection, Transaction> {
         KuduScanner &scanner = openScan(tx.table(), scanners, projection,
                 filterColName, double(0.0), KuduPredicate::GREATER_EQUAL,
                 filterColName, double(0.5), KuduPredicate::LESS_EQUAL);
-        int64_t max = 0, val;
+        double max = 0, val;
         while (scanner.HasMoreRows()) {
             assertOk(scanner.NextBatch(&resultBatch));
             for (KuduRowResult row : resultBatch) {
