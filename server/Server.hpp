@@ -147,7 +147,6 @@ private: // members
     std::vector<string> mSyllables = {
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
-    std::uniform_int_distribution<unsigned> mColumnDist;
     GetInstance<ScanContext> mScanContext;
     GetInstance<Q1> mQ1;
     GetInstance<Q2> mQ2;
@@ -160,7 +159,6 @@ public: // construction
         , mConnection(connection)
         , mN(n)
         , mRnd(randomSeed())
-        , mColumnDist(0, mN)
         , mScanContext(*this)
         , mQ1(mScanContext)
         , mQ2(mScanContext)
@@ -212,7 +210,7 @@ public:
             cols[3] = std::make_pair(offset + 6, rand<6>());
         }
         if (boolDist(mRnd) <= 5) {
-            cols[4] = std::make_pair(offset + 8, rand<9>());
+            cols[4] = std::make_pair(offset + 8, rand<8>());
         } else {
             cols[4] = std::make_pair(offset + 9, rand<9>());
         }
