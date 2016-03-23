@@ -63,26 +63,14 @@ void assertSql(int code, const char* file, int line) {
     }
 }
 
-std::vector<unsigned> calcAnalyticalDistribution(unsigned numHosts, unsigned numAnayltical) {
-    std::vector<unsigned> res(numHosts, 0);
-    for (auto& c : res) {
-        c = numAnayltical / numHosts;
-    }
-    auto remaining = numAnayltical % numHosts;
-    for (unsigned i = 0; i < remaining; ++i) {
-        ++res[i];
-    }
-    return res;
-}
-
 int main(int argc, const char* argv[]) {
     namespace po = boost::program_options;
     unsigned numThreads = 1;
     unsigned sf;
-    unsigned clientsPerServer = 1;
+    unsigned oltpClients;
     bool populate = false;
     unsigned time = 5;
-    unsigned numAnayltical;
+    unsigned numAnalytical;
     unsigned numOps;
     double insProb, delProb, updProb;
     bool noWarmup;
@@ -93,8 +81,8 @@ int main(int argc, const char* argv[]) {
         ("help,h", "Show help message")
         ("hosts,H", po::value<std::string>(&hostStr)->required(), "Adress to servers")
         ("scaling-factor,s", po::value<unsigned>(&sf)->required(), "Scaling factor")
-        ("clients,c", po::value<unsigned>(&clientsPerServer), "Number of clients per server")
-        ("analytical,a", po::value<unsigned>(&numAnayltical), "Number of analytical clients (in total)")
+        ("clients,c", po::value<unsigned>(&oltpClients)->default_value(29), "Number of get/put clients (in total)")
+        ("analytical,a", po::value<unsigned>(&numAnalytical)->default_value(0), "Number of analytical clients (in total)")
         ("threads,t", po::value<unsigned>(&numThreads), "Number of network threads")
         ("populate,P", "Run population instead of benchmark")
         ("db,o", po::value<std::string>(&dbFile), "Output to write to")
@@ -122,58 +110,66 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
 
+    if (oltpClients == 0 && populate) {
+        std::cerr << "can not populate without oltp clients\n";
+        return 1;
+    }
+
     if (!noWarmup)
         time += 2;
 
     std::vector<std::string> hosts;
     boost::split(hosts, hostStr, boost::is_any_of(";,"), boost::token_compress_on);
-    unsigned numClients = clientsPerServer * hosts.size();
-
-    if (numAnayltical > numClients) {
-        std::cerr << "There can not be more analytical clients than clients in total\n";
-        return 1;
-    }
 
     boost::asio::io_service service;
     boost::asio::io_service::strand ioStrand(service);
     std::vector<std::unique_ptr<mbench::Client>> clients;
-    clients.reserve(numClients);
+    clients.reserve(oltpClients + numAnalytical);
     boost::asio::ip::tcp::resolver resolver(service);
     std::vector<std::string> hostPort;
     hostPort.reserve(2);
 
-    auto analyticalClients = calcAnalyticalDistribution(hosts.size(), numAnayltical);
-    bool allAnalytical = true;
-    unsigned numGetPutClients = numClients - numAnayltical;
-    unsigned clientId = 0;
-    for (unsigned i = 0; i < hosts.size(); ++i) {
-        for (unsigned j = 0; j < clientsPerServer; ++j) {
-            bool a = j < analyticalClients[i];
-            if (!a) {
-                allAnalytical = false;
-                clients.emplace_back(new mbench::Client(service, ioStrand, sf,
-                            numGetPutClients, clientId++, a, numOps, insProb,
-                            delProb, updProb));
-            } else {
-                clients.emplace_back(new mbench::Client(service, ioStrand, sf,
-                            numGetPutClients, 0, a, numOps, insProb, delProb,
-                            updProb));
-            }
-            auto& client = *clients.back();
-            boost::split(hostPort, hosts[i], boost::is_any_of(":"), boost::token_compress_on);
-            if (hostPort.size() == 1) {
-                boost::asio::connect(client.socket(), resolver.resolve({hostPort[0]}));
-            } else if (hostPort.size() == 2) {
-                boost::asio::connect(client.socket(), resolver.resolve({hostPort[0], hostPort[1]}));
-            } else {
-                std::cerr << "Format error while parsing hosts" << std::endl;
-                return 1;
-            }
+    bool allAnalytical = numAnalytical == 0;
+    auto hostIter = hosts.begin();
+    if (populate) numAnalytical = 0;
+    for (unsigned i = 0; i < numAnalytical; ++i) {
+        if (hostIter == hosts.end()) hostIter = hosts.begin();
+        clients.emplace_back(new mbench::Client(service, ioStrand, sf,
+                    oltpClients, 0, true, numOps, insProb, delProb,
+                    updProb));
+        auto& client = *clients.back();
+        boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
+        if (hostPort.size() == 1) {
+            boost::asio::connect(client.socket(), resolver.resolve({hostPort[0]}));
+        } else if (hostPort.size() == 2) {
+            boost::asio::connect(client.socket(), resolver.resolve({hostPort[0], hostPort[1]}));
+        } else {
+            std::cerr << "Format error while parsing hosts" << std::endl;
+            return 1;
         }
+        ++hostIter;
+    }
+    for (unsigned clientId = 0; clientId < oltpClients; ++clientId) {
+        if (hostIter == hosts.end()) hostIter = hosts.begin();
+        clients.emplace_back(new mbench::Client(service, ioStrand, sf,
+                    oltpClients, clientId++, false, numOps, insProb,
+                    delProb, updProb));
+        auto& client = *clients.back();
+        boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
+        if (hostPort.size() == 1) {
+            boost::asio::connect(client.socket(), resolver.resolve({hostPort[0]}));
+        } else if (hostPort.size() == 2) {
+            boost::asio::connect(client.socket(), resolver.resolve({hostPort[0], hostPort[1]}));
+        } else {
+            std::cerr << "Format error while parsing hosts" << std::endl;
+            return 1;
+        }
+        ++hostIter;
     }
     auto duration = std::chrono::minutes(time);
     bool timerChosen = true;
     if (populate) {
+        std::cout << "start population\n";
         clients[0]->populate(clients);
     } else {
         for (auto& client : clients) {

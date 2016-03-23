@@ -84,7 +84,7 @@ struct Q3<Server, Connection, Transaction> {
         auto f = tx.idOfPos(4);
         tell::db::FullScan query(tx.tableId());
         query && std::make_tuple(tell::store::PredicateType::GREATER, f, tell::db::Field(int16_t(0)))
-              && std::make_tuple(tell::store::PredicateType::LESS, f, tell::db::Field(int16_t(128)));
+              && std::make_tuple(tell::store::PredicateType::LESS, f, tell::db::Field(int16_t(26)));
         auto iter = tx.transaction().scan(query, *scanMemoryManager);
         while (iter->hasNext()) {
             iter->nextChunk();

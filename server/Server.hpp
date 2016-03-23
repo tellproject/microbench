@@ -23,6 +23,7 @@
 #pragma once
 #include "Queries.hpp"
 #include <util/Protocol.hpp>
+#include <common/Common.hpp>
 
 #include <crossbow/Protocol.hpp>
 #include <boost/format.hpp>
@@ -158,7 +159,7 @@ public: // construction
         , mServer(*this, mSocket)
         , mConnection(connection)
         , mN(n)
-        , mRnd(std::random_device()())
+        , mRnd(randomSeed())
         , mColumnDist(0, mN)
         , mScanContext(*this)
         , mQ1(mScanContext)
@@ -416,6 +417,7 @@ public: // commands
             try {
                 auto begin = Clock::now();
                 mQ1(tx);
+                tx.commit();
                 auto end = Clock::now();
                 res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
                 mService.post([callback, res]() {
@@ -443,6 +445,7 @@ public: // commands
             try {
                 auto begin = Clock::now();
                 mQ2(tx);
+                tx.commit();
                 auto end = Clock::now();
                 res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
                 mService.post([callback, res]() {
@@ -470,6 +473,7 @@ public: // commands
             try {
                 auto begin = Clock::now();
                 mQ3(tx);
+                tx.commit();
                 auto end = Clock::now();
                 res.responseTime = std::chrono::duration_cast<std::chrono::nanoseconds>(end - begin).count();
                 mService.post([callback, res]() {

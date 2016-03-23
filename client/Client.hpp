@@ -23,6 +23,7 @@
 #pragma once
 #include <boost/asio.hpp>
 #include <util/Protocol.hpp>
+#include <common/Common.hpp>
 
 #include <chrono>
 #include <random>
@@ -55,7 +56,7 @@ private:
     Clock::time_point mStartTime;
     Clock::time_point mEndTime;
     Clock::time_point mLastTime;
-    std::mt19937 mRnd;
+    std::mt19937_64 mRnd;
     std::uniform_int_distribution<unsigned> mDist;
     bool mAnalytical;
     std::deque<LogEntry> mLog;
@@ -85,7 +86,7 @@ public:
         , mSf(sf)
         , mNumTuples(sf * 1024 * 1024)
         , mStartTime(Clock::now())
-        , mRnd(std::random_device()())
+        , mRnd(randomSeed())
         , mDist(0, analytical ? 2 : 3)
         , mAnalytical(analytical)
         , mNumClients(numClients)
