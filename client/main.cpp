@@ -129,7 +129,7 @@ int main(int argc, const char* argv[]) {
     std::vector<std::string> hostPort;
     hostPort.reserve(2);
 
-    bool allAnalytical = numAnalytical == 0;
+    bool allAnalytical = oltpClients == 0;
     auto hostIter = hosts.begin();
     if (populate) numAnalytical = 0;
     for (unsigned i = 0; i < numAnalytical; ++i) {
@@ -152,7 +152,7 @@ int main(int argc, const char* argv[]) {
     for (unsigned clientId = 0; clientId < oltpClients; ++clientId) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();
         clients.emplace_back(new mbench::Client(service, ioStrand, sf,
-                    oltpClients, clientId++, false, numOps, insProb,
+                    oltpClients, clientId, false, numOps, insProb,
                     delProb, updProb));
         auto& client = *clients.back();
         boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
@@ -187,7 +187,7 @@ int main(int argc, const char* argv[]) {
     }
 
 
-    std::cout << "Will run for " << time << " minutes\n";
+    std::cout << "Will run for " << time << " minutes with " << clients.size() << " clients\n";
     auto startTime = mbench::Clock::now();
     std::vector<std::thread> threads;
     threads.reserve(numThreads - 1);
