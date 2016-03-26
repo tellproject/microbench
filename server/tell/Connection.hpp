@@ -50,6 +50,7 @@ public:
         if (!mTableIdSet) {
             auto resF = mTx.openTable("maintable");
             mTableId = resF.get();
+            mTableIdSet = true;
         }
         return mTableId;
     }
@@ -211,7 +212,8 @@ public:
     }
 
     void insert(uint64_t key, const Tuple& value) {
-        auto insTuple = mTx.newTuple(tableId());
+        auto tId = tableId();
+        auto insTuple = mTx.newTuple(tId);
         for (unsigned i = 0; i < value.size(); ++i) {
             insTuple[idOfPos(i)] = value[i];
         }
@@ -220,7 +222,7 @@ public:
             assert(!insTuple[i].null());
         }
 #endif
-        mTx.insert(tableId(), tell::db::key_t{key}, insTuple);
+        mTx.insert(tId, tell::db::key_t{key}, insTuple);
     }
 
     void createSchema(unsigned numCols, unsigned sf) {
