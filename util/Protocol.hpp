@@ -65,6 +65,7 @@ struct Signature<Commands::CreateSchema> {
 };
 
 struct BatchOp {
+    using is_serializable = crossbow::is_serializable;
     unsigned numOps;
     double insertProb;
     double deleteProb;
@@ -73,6 +74,18 @@ struct BatchOp {
     uint64_t numClients;
     uint64_t baseInsertKey;
     uint64_t baseDeleteKey;
+
+    template<class Archiver>
+    void operator& (Archiver& ar) {
+        ar & numOps;
+        ar & insertProb;
+        ar & deleteProb;
+        ar & updateProb;
+        ar & clientId;
+        ar & numClients;
+        ar & baseInsertKey;
+        ar & baseDeleteKey;
+    }
 };
 
 struct BatchResult {
