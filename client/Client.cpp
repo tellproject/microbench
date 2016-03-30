@@ -217,6 +217,11 @@ void Client::doRunAnalytical() {
         mLog.emplace_back(std::move(l));
         doRunAnalytical();
     };
+    if (mOnlyQ1) {
+        mCurrent = Commands::Q1;
+        mClient.execute<Commands::Q1>(fun);
+        return;
+    }
     switch (rnd) {
     case 0:
         mCurrent = Commands::Q1;

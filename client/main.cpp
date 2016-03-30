@@ -74,6 +74,7 @@ int main(int argc, const char* argv[]) {
     unsigned numOps;
     double insProb, delProb, updProb;
     bool noWarmup;
+    bool onlyQ1;
     std::string hostStr;
     std::string dbFile("out.db");
     po::options_description desc("Allowed options");
@@ -92,6 +93,7 @@ int main(int argc, const char* argv[]) {
         ("deletes,d", po::value<double>(&delProb)->default_value(0.166), "Fraction of delete operations")
         ("update,u", po::value<double>(&updProb)->default_value(0.166), "Fraction of update operations")
         ("no-warmup", po::bool_switch(&noWarmup)->default_value(false), "No warm up time")
+        ("only-q1,q", po::bool_switch(&onlyQ1)->default_value(false), "Execute only q1")
         ;
 
     po::variables_map vm;
@@ -136,7 +138,7 @@ int main(int argc, const char* argv[]) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();
         clients.emplace_back(new mbench::Client(service, ioStrand, sf,
                     oltpClients, 0, true, numOps, insProb, delProb,
-                    updProb));
+                    updProb, onlyQ1));
         auto& client = *clients.back();
         boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
         if (hostPort.size() == 1) {
@@ -153,7 +155,7 @@ int main(int argc, const char* argv[]) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();
         clients.emplace_back(new mbench::Client(service, ioStrand, sf,
                     oltpClients, clientId, false, numOps, insProb,
-                    delProb, updProb));
+                    delProb, updProb, onlyQ1));
         auto& client = *clients.back();
         boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
         if (hostPort.size() == 1) {

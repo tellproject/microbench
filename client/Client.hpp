@@ -64,6 +64,7 @@ private:
     unsigned mClientId;
     Commands mCurrent;
     BatchOp mBatchOp;
+    bool mOnlyQ1;
 private:
     void populate(uint64_t start, uint64_t end);
     bool done(const Clock::time_point& now);
@@ -79,7 +80,8 @@ public:
            , unsigned numOps
            , double insertProb
            , double deleteProb
-           , double updateProb)
+           , double updateProb
+           , bool onlyQ1)
         : mSocket(service)
         , mIOStrand(ioStrand)
         , mClient(mSocket)
@@ -91,6 +93,7 @@ public:
         , mAnalytical(analytical)
         , mNumClients(numClients)
         , mClientId(clientId)
+        , mOnlyQ1(onlyQ1)
     {
         mBatchOp.numOps        = numOps;
         mBatchOp.insertProb    = insertProb;
