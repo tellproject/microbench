@@ -55,4 +55,8 @@ size_t randomSeed() {
     return rndDevice();
 }
 
+uint64_t numTuples(unsigned sf) {
+    return uint64_t(sf)*uint64_t(1024*1024);
+}
+
 }

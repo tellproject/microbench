@@ -20,13 +20,5 @@
  *     Kevin Bocksrocker <kevin.bocksrocker@gmail.com>
  *     Lucas Braun <braunl@inf.ethz.ch>
  */
-#pragma once
-#include <cstdint>
 
-namespace mbench {
 
-extern std::size_t randomSeed();
-
-extern uint64_t numTuples(unsigned sf);
-
-}
