@@ -30,9 +30,6 @@
 #include <deque>
 
 namespace mbench {
-constexpr uint64_t numTuples(unsigned sf) {
-    return uint64_t(sf)*uint64_t(1024*1024);
-}
 
 extern uint64_t calcBaseInsertKey(unsigned sf, unsigned numClients, unsigned clientId);
 
@@ -86,7 +83,7 @@ public:
         , mIOStrand(ioStrand)
         , mClient(mSocket)
         , mSf(sf)
-        , mNumTuples(sf * 1024 * 1024)
+        , mNumTuples(numTuples(sf))
         , mStartTime(Clock::now())
         , mRnd(randomSeed())
         , mDist(0, analytical ? 2 : 3)

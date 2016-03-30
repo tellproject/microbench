@@ -256,12 +256,12 @@ void Client::populate(const std::vector<std::unique_ptr<Client>>& clients) {
         assertOk(*this, res, Commands::Populate);
         LOG_INFO("Created Schema, start population");
         std::cout << "Created Schema - start population" << std::endl;
-        uint64_t numTuples = mSf * 1024 * 1024;
-        uint64_t tuplesPerClient = numTuples / clients.size();
+        uint64_t nTuples = numTuples(mSf);
+        uint64_t tuplesPerClient = nTuples / clients.size();
         for (uint64_t i = 0; i < clients.size(); ++i) {
             if (i + 1 == clients.size()) {
                 // last client
-                clients[i]->populate(i*tuplesPerClient, numTuples);
+                clients[i]->populate(i*tuplesPerClient, nTuples);
             } else {
                 clients[i]->populate(i*tuplesPerClient, (i + 1) * tuplesPerClient);
             }

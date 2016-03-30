@@ -325,7 +325,7 @@ public:
         assertOk(mClient.ListTabletServers(&servers));
         auto numTablets = 8*servers.size();
         std::vector<const kudu::KuduPartialRow*> splits;
-        auto increment = (sf * 1024*1024 * 4) / numTablets; // For now create a domain that is 4 times bigger than population.
+        auto increment = numTuples(sf) * 2 / numTablets; // For now create a domain that is 2 times bigger than population.
         for (uint64_t i = 0; i < numTablets; ++i) {
             auto row = schema.NewRow();
             assertOk(row->SetInt64(0, i*increment));
