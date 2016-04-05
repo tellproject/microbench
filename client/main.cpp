@@ -210,10 +210,27 @@ int main(int argc, const char* argv[]) {
     sqlOk(sqlite3_open(dbFile.c_str(), &db));
     sqlOk(sqlite3_exec(db, "CREATE TABLE results(start int, end int, rt int, tx text, success text, msg text)",
                 nullptr, nullptr, nullptr));
+    sqlOk(sqlite3_exec(db, "CREATE TABLE clientArgs(idx int, param text)", nullptr, nullptr, nullptr));
 
-    // Insert data
     sqlOk(sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr));
+    // Insert arguments
     sqlite3_stmt* stmt;
+    sqlOk(sqlite3_prepare_v2(db, "INSERT INTO clientArgs VALUES(?, ?)", -1, &stmt, nullptr));
+    for (int i = 0; i < argc; ++i) {
+        sqlOk(sqlite3_bind_int(stmt, 1, i));
+        sqlOk(sqlite3_bind_text(stmt, 2, argv[i], -1, nullptr));
+        int s;
+        while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
+            if (s == SQLITE_ERROR) {
+                throw std::runtime_error(sqlite3_errmsg(db));
+            }
+        }
+        sqlite3_reset(stmt);
+    }
+    sqlOk(sqlite3_finalize(stmt));
+    sqlOk(sqlite3_exec(db, "END TRANSACTION", nullptr, nullptr, nullptr));
+    // insert data
+    sqlOk(sqlite3_exec(db, "BEGIN TRANSACTION", nullptr, nullptr, nullptr));
     sqlOk(sqlite3_prepare_v2(db, "INSERT INTO results VALUES(?, ?, ?, ?, ?, ?)", -1, &stmt, nullptr));
 
     for (auto& client : clients) {
@@ -226,7 +243,7 @@ int main(int argc, const char* argv[]) {
             std::string msg(e.error.data(), e.error.size());
             sqlOk(sqlite3_bind_int(stmt, 1, start));
             sqlOk(sqlite3_bind_int(stmt, 2, end));
-            sqlOk(sqlite3_bind_int(stmt, 3, e.responseTime));
+            sqlOk(sqlite3_bind_int64(stmt, 3, e.responseTime));
             sqlOk(sqlite3_bind_text(stmt, 4, trans.data(), trans.size(), nullptr));
             sqlOk(sqlite3_bind_text(stmt, 5, success.data(), success.size(), nullptr));
             sqlOk(sqlite3_bind_text(stmt, 6, msg.data(), msg.size(), nullptr));
@@ -239,66 +256,10 @@ int main(int argc, const char* argv[]) {
             sqlite3_reset(stmt);
         }
     }
+    sqlOk(sqlite3_finalize(stmt));
     sqlOk(sqlite3_exec(db, "END TRANSACTION", nullptr, nullptr, nullptr));
-    sqlOk(sqlite3_finalize(stmt));
 
-    std::cout << "Inserted data, calculating results...\n";
-    std::string cutWarmup = noWarmup ? "" : "start >= 60000000 AND end <= 360000000 AND success LIKE 'true'";
-    std::string getPutTP = (boost::format(
-            "SELECT count(*)/%1% "
-            "FROM results "
-            "WHERE tx LIKE 'BatchOp' "
-            "AND %2%"
-            ) % double((time - 2)*60) % cutWarmup).str();
-    std::string scanTP = (boost::format(
-            "SELECT count(*)/%1% "
-            "FROM results "
-            "WHERE tx LIKE 'Q%%' "
-            "AND %2%"
-            ) % double((time - 2)) % cutWarmup).str();
-    std::string responseTime = (boost::format(
-            "SELECT tx, avg(rt) "
-            "FROM results "
-            "WHERE %1% "
-            "GROUP BY tx;"
-            ) % cutWarmup).str();
-    std::cout << "================\n";
-    std::cout << "Get/Put throughput:\n";
-    std::cout << "===================\n";
-    std::cout << getPutTP << std::endl;
-    std::cout << "---------------------\n";
-    sqlOk(sqlite3_prepare_v2(db, getPutTP.data(), getPutTP.size() + 1, &stmt, nullptr));
-    int s;
-    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
-        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
-        double tp = sqlite3_column_double(stmt, 0);
-        std::cout << tp << " / second\n";
-    }
-    sqlOk(sqlite3_finalize(stmt));
-    sqlOk(sqlite3_prepare_v2(db, scanTP.data(), scanTP.size() + 1, &stmt, nullptr));
-    std::cout << "================\n";
-    std::cout << "Scan throughput:\n";
-    std::cout << "================\n";
-    std::cout << scanTP << std::endl;
-    std::cout << "---------------------\n";
-    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
-        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
-        double tp = sqlite3_column_double(stmt, 0);
-        std::cout << tp << " / minute\n";
-    }
-    std::cout << "================\n";
-    std::cout << "Response Times:\n";
-    std::cout << "================\n";
-    std::cout << responseTime << std::endl;
-    sqlOk(sqlite3_finalize(stmt));
-    sqlOk(sqlite3_prepare_v2(db, responseTime.data(), responseTime.size() + 1, &stmt, nullptr));
-    while ((s = sqlite3_step(stmt)) != SQLITE_DONE) {
-        if (s == SQLITE_ERROR) throw std::runtime_error(sqlite3_errmsg(db));
-        auto name = sqlite3_column_text(stmt, 0);
-        double rt = sqlite3_column_double(stmt, 1);
-        std::cout << name << ": " << rt/1000.0 << " microseconds" << std::endl;
-    }
-    std::cout << "done";
+    std::cout << "done\n";
     sqlite3_close(db);
     return 0;
 }
