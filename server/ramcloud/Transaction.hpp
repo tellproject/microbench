@@ -227,13 +227,14 @@ struct Q1<Server, Connection, Transaction> {
 
     void operator() (Transaction& tx) {
         auto tableId = tx.table();
-        uint32_t size;
+        uint32_t keyLength, dataLength;
         Record10 record;
-        double max = std::numeric_limits<double>::min();
+        double max = 0;
         TableEnumerator tEnum(tx.client(), tableId, false);
         while (tEnum.hasNext()) {
+            const uint64_t *key;
             const void* objs = nullptr;
-            tEnum.next(&size, &objs);
+            tEnum.nextKeyAndData(&keyLength, reinterpret_cast<const void**>(&key), &dataLength, &objs);
             Transaction::deserialize(objs, record);
             max = std::max(max, record.A);
         }
