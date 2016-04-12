@@ -18,8 +18,6 @@
 #include "IndexLookup.h"
 #include "TableEnumerator.h"
 
-using namespace RAMCloud;
-
 const int session_timeout = 100000;
 
 namespace mbench {
@@ -31,22 +29,23 @@ namespace mbench {
     };
     
     class Connection {
-        std::unique_ptr<RamCloud> mClient;
         uint32_t mServerspan;
+        Context mContext;
+        RAMCloud::RamCloud mClient;
     public: // types
         using string_type = std::string;
     public:
         Connection(const ConnectionConfig& config, boost::asio::io_service&, unsigned) :
-            mServerspan(config.serverspan)
+            mServerspan(config.serverspan),
+            mContext(false),
+            mClient(&mContext, config.locator.c_str(), config.clustername.c_str())
         {
-            Context context(false);
-            context.transportManager->setSessionTimeout(session_timeout);
-            mClient.reset(new RamCloud(&context, config.locator.c_str(), config.clustername.c_str()));
+            mContext.transportManager->setSessionTimeout(session_timeout);
         }
     
         template<class Callback>
         void startTx(mbench::TxType txType, const Callback& callback) {
-            Transaction tx (*mClient, mServerspan);
+            Transaction tx (mClient, mServerspan);
             callback(tx);
         }
     };

@@ -126,13 +126,13 @@ public:
     void createSchema(unsigned nCols, unsigned sf) {
         if (nCols != 10)
             throw std::runtime_error("number of columns must be 10, anything else is unsupported!");
-        uint64_t tableId = table();
-        if (tableId > 0) {
-            //std::cout<<"Table will be dropped and recreated." << std::endl;
-            mClient.dropTable(tName.c_str());
-        } 
-        //std::cout<<"Creating table" << tName << std::endl;
-        tableId = mClient.createTable(tName.c_str(), mServerspan);
+        // uint64_t tableId = table();
+        // if (tableId > 0) {
+        //     //std::cout<<"Table will be dropped and recreated." << std::endl;
+        //     mClient.dropTable(tName.c_str());
+        // } 
+        std::cout<<"Creating table " << tName << std::endl;
+        mTableId = mClient.createTable(tName.c_str(), mServerspan);
     }
 
     void get(uint64_t key) {
