@@ -60,7 +60,7 @@ if(USE_KUDU)
 endif()
 if(USE_RAMCLOUD)
     # find_package(ramcloud REQUIRED)
-    set(ramcloud_DIR "/home/marenato/Documents/workspace/workspacePhd/RAMCloud")
+    set(ramcloud_DIR "/mnt/local/tell/RAMCloud")
 
     set(RAMCLOUD_SRCS server/ramcloud/main.cpp)
     add_executable(mbserver_ramcloud ${RAMCLOUD_SRCS})
