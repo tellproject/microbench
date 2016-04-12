@@ -3,6 +3,9 @@
 #include <server/main.hpp>
 #include <server/Queries.hpp>
 
+#include <crossbow/Serializer.hpp>
+#include <crossbow/string.hpp>
+
 #include <stdlib.h>
 #include <iostream>
 #include <atomic>
@@ -26,6 +29,34 @@ using namespace RAMCloud;
 
 namespace mbench {
 
+struct Record10 {
+    using is_serializable = crossbow::is_serializable;
+    double A;
+    int32_t B;
+    int32_t C;
+    int16_t D;
+    int16_t E;
+    int64_t F;
+    int64_t G;
+    double H;
+    crossbow::string I;
+    crossbow::string J;
+
+    template<class Archiver>
+    void operator&(Archiver& ar) {
+        ar & A;
+        ar & B;
+        ar & C;
+        ar & D;
+        ar & E;
+        ar & F;
+        ar & G;
+        ar & H;
+        ar & I;
+        ar & J;
+    }
+};
+
 class Connection;
 
 const std::string tName = "maintable";
@@ -34,9 +65,32 @@ class Transaction {
     RamCloud &mClient;
     uint32_t mServerspan;
     uint64_t mTableId = 0;
-    std::vector<std::pair<uint64_t, std::stringstream>> putOps;
+    std::vector<std::pair<uint64_t, Record10>> putOps;
     std::vector<uint64_t> delOps;
     std::vector<uint64_t> getOps;
+
+public:
+    void static deserialize(const void* addr, Record10 &record) {
+        crossbow::deserializer des(reinterpret_cast<const uint8_t*>(addr));
+        des & record;
+    }
+
+private:
+    void write(uint64_t key, Record10 &record, uint64_t tableId){
+        crossbow::sizer sizer;
+        sizer & record;
+
+        crossbow::serializer ser(sizer.size);
+        ser & record;
+        mClient.write(tableId, (const void*) &key, sizeof(uint64_t), ser.buffer.get(), sizer.size);
+    }
+
+
+    void read(uint64_t key, Record10 &record, uint64_t tableId) {
+        Buffer buffer;
+        mClient.read(tableId, (const void*) &key, sizeof(uint64_t), &buffer);
+        deserialize(buffer.getRange(0, buffer.size()), record);
+    }
 
 public: //types
     using Field = boost::variant<int16_t, int32_t, int64_t, float, double, std::string>;
@@ -63,9 +117,15 @@ public:
              // std::cout<<"Table doesn't exist. It will be created." << std::endl;
         }
         return mTableId;
-    } 
+    }
+
+    RamCloud& client() {
+        return mClient;
+    }
 
     void createSchema(unsigned nCols, unsigned sf) {
+        if (nCols != 10)
+            throw std::runtime_error("number of columns must be 10, anything else is unsupported!");
         uint64_t tableId = table();
         if (tableId > 0) {
             //std::cout<<"Table will be dropped and recreated." << std::endl;
@@ -84,19 +144,60 @@ public:
     }
 
     void update(uint64_t key, const UpdateOp& updOp) {
-//        std::stringstream val;
-//        //TODO: insert a get first...
-//        for (uint i = 0; i < updOp.size(); ++i)
-//            //if (value[i] != null)
-//                val << updOp[i].second;
-//        putOps.emplace_back(std::make_pair(key, val));
+        auto tableId = table();
+        Record10 record;
+        read(key, record, tableId);
+        for(auto updPair : updOp) {
+            auto value = updPair.second;
+            switch(updPair.first) {
+            case 0:
+                record.A = boost::get<double>(value);
+                break;
+            case 1:
+                record.B = boost::get<int32_t>(value);
+                break;
+            case 2:
+                record.C = boost::get<int32_t>(value);
+                break;
+            case 3:
+                record.D = boost::get<int16_t>(value);
+                break;
+            case 4:
+                record.E = boost::get<int16_t>(value);
+                break;
+            case 5:
+                record.F = boost::get<int64_t>(value);
+                break;
+            case 6:
+                record.G = boost::get<int64_t>(value);
+                break;
+            case 7:
+                record.H = boost::get<double>(value);
+                break;
+            case 8:
+                record.I = boost::get<std::string>(value);
+                break;
+            case 9:
+                record.J = boost::get<std::string>(value);
+            }
+        }
+        putOps.emplace_back(std::make_pair(key, std::move(record)));
     }
 
     void insert(uint64_t key, const Tuple &value) {
-//        std::stringstream val;
-//        for (uint i = 0; i < value.size(); ++i)
-//            val << value[i];
-//        putOps.emplace_back (std::make_pair(key, val));
+        auto tableId = table();
+        Record10 record;
+        record.A = boost::get<double>(value[0]);
+        record.B = boost::get<int32_t>(value[1]);
+        record.C = boost::get<int32_t>(value[2]);
+        record.D = boost::get<int16_t>(value[3]);
+        record.E = boost::get<int16_t>(value[4]);
+        record.F = boost::get<int64_t>(value[5]);
+        record.G = boost::get<int64_t>(value[6]);
+        record.H = boost::get<double>(value[7]);
+        record.I = boost::get<std::string>(value[8]);
+        record.J = boost::get<std::string>(value[9]);
+        write(key, record, tableId);
     }
 
     void commit() {
@@ -104,14 +205,10 @@ public:
         Buffer buffer;
         for (auto const& key: getOps) {
             mClient.read(tableId, (const void*) &key, sizeof(uint64_t), &buffer);
-            // no deserialization needed because we do not care
+            // no deserialization needed because we do not care for the precise result
         }
         for (auto & op: putOps) {
-            int pos0 = op.second.tellg();
-            op.second.seekp(0, std::ios::end);
-            uint32_t valSz = op.second.tellg();
-            op.second.seekp(pos0, std::ios::beg);
-            mClient.write(tableId, (const void*) &op.first, sizeof(uint64_t), op.second.str().c_str(), valSz); //keySize, valueBuffer, valueBufferSize
+            write(op.first, op.second, tableId);
         }
         for (auto const& key: delOps) {
             mClient.remove(tableId, (const void*) &key, sizeof(uint64_t));
@@ -129,22 +226,17 @@ struct Q1<Server, Connection, Transaction> {
     {}
 
     void operator() (Transaction& tx) {
-//        std::vector<std::string> projection;
-//        int maxColIdx = projection.size();
-//        projection.push_back(nameOfCol(0));
-//
-//        ScannerList scanners;
-//        std::vector<KuduRowResult> resultBatch;
-//        KuduScanner &scanner = openScan(tx.table(), scanners, projection);
-//        double max = 0, val;
-//        while (scanner.HasMoreRows()) {
-//            assertOk(scanner.NextBatch(&resultBatch));
-//            for (KuduRowResult row : resultBatch) {
-//                getField(row, maxColIdx, val);
-//                max = std::max(max, val);
-//            }
-//        }
-//        tx.commit();
+        auto tableId = tx.table();
+        uint32_t size;
+        Record10 record;
+        double max = std::numeric_limits<double>::min();
+        TableEnumerator tEnum(tx.client(), tableId, false);
+        while (tEnum.hasNext()) {
+            const void* objs = nullptr;
+            tEnum.next(&size, &objs);
+            Transaction::deserialize(objs, record);
+            max = std::max(max, record.A);
+        }
     }
 };
 
@@ -157,27 +249,7 @@ struct Q2<Server, Connection, Transaction> {
     {}
 
     void operator() (Transaction& tx) {
-//        unsigned iU, jU;
-//        std::tie(iU,jU) = scanContext.template rndTwoCols<'A'>();
-//        std::vector<std::string> projection;
-//        int maxColIdx = projection.size();
-//        projection.push_back(nameOfCol(0));
-//        std::string filterColName = nameOfCol(7);
-//
-//        ScannerList scanners;
-//        std::vector<KuduRowResult> resultBatch;
-//        KuduScanner &scanner = openScan(tx.table(), scanners, projection,
-//                filterColName, double(0.0), KuduPredicate::GREATER_EQUAL,
-//                filterColName, double(0.5), KuduPredicate::LESS_EQUAL);
-//        double max = 0, val;
-//        while (scanner.HasMoreRows()) {
-//            assertOk(scanner.NextBatch(&resultBatch));
-//            for (KuduRowResult row : resultBatch) {
-//                getField(row, maxColIdx, val);
-//                max = std::max(max, val);
-//            }
-//        }
-//        tx.commit();
+        throw std::runtime_error("Query 2 not implemented for Ramcloud");
     }
 };
 
@@ -190,18 +262,7 @@ struct Q3<Server, Connection, Transaction> {
     {}
 
     void operator() (Transaction& tx) {
-//        std::vector<std::string> projection;
-//        std::string filterColName = nameOfCol(4);
-//
-//        ScannerList scanners;
-//        std::vector<KuduRowResult> resultBatch;
-//        KuduScanner &scanner = openScan(tx.table(), scanners, projection,
-//                filterColName, int16_t(0), KuduPredicate::GREATER_EQUAL,
-//                filterColName, int16_t(128), KuduPredicate::LESS_EQUAL);
-//        while (scanner.HasMoreRows()) {
-//            assertOk(scanner.NextBatch(&resultBatch));
-//        }
-//        tx.commit();
+        throw std::runtime_error("Query 3 not implemented for Ramcloud");
     }
 };
 
