@@ -226,7 +226,7 @@ public:
         assertOk(row->SetInt64(0, key));
         SetVisitor visitor(*row);
         for (auto& p : up) {
-            visitor.setIdx(p.first);
+            visitor.setIdx(p.first + 1);
             boost::apply_visitor(visitor, p.second);
         }
         auto& session = this->session();
@@ -236,7 +236,7 @@ public:
     void get(uint64_t key) {
         auto& table = this->table();
         kudu::client::KuduScanner scanner(&table);
-        auto pre = table.NewComparisonPredicate(0, kudu::client::KuduPredicate::EQUAL, kudu::client::KuduValue::FromInt(int64_t(key)));
+        auto pre = table.NewComparisonPredicate("P", kudu::client::KuduPredicate::EQUAL, kudu::client::KuduValue::FromInt(int64_t(key)));
         assertOk(scanner.AddConjunctPredicate(pre));
         assertOk(scanner.Open());
         if (scanner.HasMoreRows()) {
