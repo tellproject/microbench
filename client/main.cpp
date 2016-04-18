@@ -133,6 +133,7 @@ int main(int argc, const char* argv[]) {
 
     bool allAnalytical = oltpClients == 0;
     auto hostIter = hosts.begin();
+    ++hostIter;
     if (populate) numAnalytical = 0;
     for (unsigned i = 0; i < numAnalytical; ++i) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();

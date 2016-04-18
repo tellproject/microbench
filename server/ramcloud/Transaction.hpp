@@ -25,8 +25,6 @@
 #include "TableEnumerator.h"
 
 
-using namespace RAMCloud;
-
 namespace mbench {
 
 struct Record10 {
@@ -59,15 +57,16 @@ struct Record10 {
 
 class Connection;
 
-const std::string tName = "maintable";
-
 class Transaction {
-    RamCloud &mClient;
+    RAMCloud::RamCloud &mClient;
     uint32_t mServerspan;
     uint64_t mTableId = 0;
     std::vector<std::pair<uint64_t, Record10>> putOps;
     std::vector<uint64_t> delOps;
     std::vector<uint64_t> getOps;
+    static const std::string tName;
+    Transaction(Transaction&&) = delete;
+    Transaction& operator=(Transaction&&) = delete;
 
 public:
     void static deserialize(const void* addr, Record10 &record) {
@@ -87,7 +86,7 @@ private:
 
 
     void read(uint64_t key, Record10 &record, uint64_t tableId) {
-        Buffer buffer;
+        RAMCloud::Buffer buffer;
         mClient.read(tableId, (const void*) &key, sizeof(uint64_t), &buffer);
         deserialize(buffer.getRange(0, buffer.size()), record);
     }
@@ -98,7 +97,7 @@ public: //types
     using UpdateOp = std::array<std::pair<unsigned, Field>, 5>;
 
 public:
-    Transaction(RamCloud &client, uint32_t serverspan) :
+    Transaction(RAMCloud::RamCloud &client, uint32_t serverspan) :
             mClient(client),
             mServerspan(serverspan)
     {}
@@ -110,16 +109,11 @@ public:
     uint64_t table() {
         if (mTableId > 0)
             return mTableId;
-        try {
-            mTableId = mClient.getTableId(tName.c_str());
-        } catch (ClientException &e) 
-        {
-             // std::cout<<"Table doesn't exist. It will be created." << std::endl;
-        }
+        mTableId = mClient.getTableId(tName.c_str());
         return mTableId;
     }
 
-    RamCloud& client() {
+    RAMCloud::RamCloud& client() {
         return mClient;
     }
 
@@ -202,16 +196,51 @@ public:
 
     void commit() {
         auto tableId = table();
-        Buffer buffer;
-        for (auto const& key: getOps) {
-            mClient.read(tableId, (const void*) &key, sizeof(uint64_t), &buffer);
+        RAMCloud::Buffer buffer;
+        {
+            std::vector<RAMCloud::Tub<RAMCloud::ObjectBuffer>> tubs(getOps.size());
+            std::unique_ptr<RAMCloud::MultiReadObject*[]> readRequest(new RAMCloud::MultiReadObject*[getOps.size()]);
+            for (unsigned i = 0; i < getOps.size(); ++i) {
+                uint64_t key = getOps[i];
+                readRequest[i] = new RAMCloud::MultiReadObject(tableId, &key, sizeof(key), &(tubs[i]));
+            }
             // no deserialization needed because we do not care for the precise result
+            mClient.multiRead(readRequest.get(), getOps.size());
+            for (unsigned i = 0; i < getOps.size(); ++i) {
+                delete readRequest[i];
+            }
         }
-        for (auto & op: putOps) {
-            write(op.first, op.second, tableId);
+        {
+            std::vector<crossbow::serializer> serializers;
+            serializers.reserve(putOps.size());
+            std::unique_ptr<RAMCloud::MultiWriteObject*[]> writeReqs(new RAMCloud::MultiWriteObject*[putOps.size()]);
+            for (unsigned i = 0; i < putOps.size(); ++i) {
+                uint64_t key = putOps[i].first;
+                const auto& rec = putOps[i].second;
+                crossbow::sizer sizer;
+                sizer & rec;
+
+                serializers.emplace_back(sizer.size);
+                auto& ser = serializers.back();
+                ser & rec;
+                writeReqs[i] = new RAMCloud::MultiWriteObject(tableId, &key, sizeof(key),
+                        ser.buffer.get(), sizer.size);
+            }
+            mClient.multiWrite(writeReqs.get(), putOps.size());
+            for (unsigned i = 0; i < putOps.size(); ++i) {
+                delete writeReqs[i];
+            }
         }
-        for (auto const& key: delOps) {
-            mClient.remove(tableId, (const void*) &key, sizeof(uint64_t));
+        {
+            std::unique_ptr<RAMCloud::MultiRemoveObject*[]> remReqs(new RAMCloud::MultiRemoveObject*[delOps.size()]);
+            for (unsigned i = 0; i < delOps.size(); ++i) {
+                uint64_t key = delOps[i];
+                remReqs[i] = new RAMCloud::MultiRemoveObject(tableId, &key, sizeof(key));
+            }
+            mClient.multiRemove(remReqs.get(), delOps.size());
+            for (unsigned i = 0; i < delOps.size(); ++i) {
+                delete remReqs[i];
+            }
         }
     }
 };
@@ -230,7 +259,7 @@ struct Q1<Server, Connection, Transaction> {
         uint32_t keyLength, dataLength;
         Record10 record;
         double max = 0;
-        TableEnumerator tEnum(tx.client(), tableId, false);
+        RAMCloud::TableEnumerator tEnum(tx.client(), tableId, false);
         while (tEnum.hasNext()) {
             const uint64_t *key;
             const void* objs = nullptr;

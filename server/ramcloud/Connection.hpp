@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <thread>
+#include <mutex>
 
 #include "ClusterMetrics.h"
 #include "Context.h"
@@ -18,37 +19,39 @@
 #include "IndexLookup.h"
 #include "TableEnumerator.h"
 
-const int session_timeout = 100000;
+constexpr int session_timeout = 100000;
 
 namespace mbench {
 
-    struct ConnectionConfig {
-        std::string clustername;
-        std::string locator;
-        uint32_t serverspan;
-    };
-    
-    class Connection {
-        uint32_t mServerspan;
-        Context mContext;
-        RAMCloud::RamCloud mClient;
-    public: // types
-        using string_type = std::string;
-    public:
-        Connection(const ConnectionConfig& config, boost::asio::io_service&, unsigned) :
-            mServerspan(config.serverspan),
-            mContext(false),
-            mClient(&mContext, config.locator.c_str(), config.clustername.c_str())
-        {
-            mContext.transportManager->setSessionTimeout(session_timeout);
-        }
-    
-        template<class Callback>
-        void startTx(mbench::TxType txType, const Callback& callback) {
-            Transaction tx (mClient, mServerspan);
-            callback(tx);
-        }
-    };
+struct ConnectionConfig {
+    std::string clustername;
+    std::string locator;
+    uint32_t serverspan;
+};
+
+extern RAMCloud::RamCloud& getInstance(const ConnectionConfig& config);
+extern RAMCloud::Context& getInstance(bool);
+
+class Connection {
+    uint32_t mServerspan;
+    ConnectionConfig mConfig;
+public: // types
+    using string_type = std::string;
+public:
+    Connection(const ConnectionConfig& config, boost::asio::io_service&, unsigned) :
+        mServerspan(config.serverspan),
+        mConfig(config)
+    {
+    }
+    Connection(Connection&&) = delete;
+    Connection& operator=(Connection&&) = delete;
+
+    template<class Callback>
+    void startTx(mbench::TxType txType, const Callback& callback) {
+        Transaction tx (getInstance(mConfig), mServerspan);
+        callback(tx);
+    }
+};
 
 template<template <class, class> class Server>
 struct ScanContext<Server, Connection, Transaction>
@@ -61,6 +64,8 @@ struct ScanContext<Server, Connection, Transaction>
     ScanContext(Server<Connection, Transaction>& server)
         : server(server)
     {}
+    ScanContext(ScanContext&&) = delete;
+    ScanContext& operator=(ScanContext&&) = delete;
 
     // dummy implemenations, need to be changed if necessary!!
     constexpr unsigned sum() const {
