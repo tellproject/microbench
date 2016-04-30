@@ -72,6 +72,7 @@ int main(int argc, const char* argv[]) {
     unsigned time = 5;
     unsigned numAnalytical;
     unsigned numOps;
+    unsigned oltpWaitTime = 0;  // minimal time [microsecs] between sending 2 OLTP requests, causes the system to wait if necessary 
     double insProb, delProb, updProb;
     bool noWarmup;
     bool onlyQ1;
@@ -89,6 +90,7 @@ int main(int argc, const char* argv[]) {
         ("db,o", po::value<std::string>(&dbFile), "Output to write to")
         ("time", po::value<unsigned>(&time), "Number of minutes to run")
         ("batch-size,b", po::value<unsigned>(&numOps)->default_value(100), "Number of operations per batch")
+        ("wait-time,w", po::value<unsigned>(&oltpWaitTime)->default_value(0), "Minimal time [microsecs] between sending 2 OLTP requests")
         ("inserts,i", po::value<double>(&insProb)->default_value(0.166), "Fraction of insert operations")
         ("deletes,d", po::value<double>(&delProb)->default_value(0.166), "Fraction of delete operations")
         ("update,u", po::value<double>(&updProb)->default_value(0.166), "Fraction of update operations")
@@ -138,7 +140,7 @@ int main(int argc, const char* argv[]) {
     for (unsigned i = 0; i < numAnalytical; ++i) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();
         clients.emplace_back(new mbench::Client(service, ioStrand, sf,
-                    oltpClients, 0, true, numOps, insProb, delProb,
+                    oltpClients, 0, true, numOps, oltpWaitTime, insProb, delProb,
                     updProb, onlyQ1));
         auto& client = *clients.back();
         boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);
@@ -155,7 +157,7 @@ int main(int argc, const char* argv[]) {
     for (unsigned clientId = 0; clientId < oltpClients; ++clientId) {
         if (hostIter == hosts.end()) hostIter = hosts.begin();
         clients.emplace_back(new mbench::Client(service, ioStrand, sf,
-                    oltpClients, clientId, false, numOps, insProb,
+                    oltpClients, clientId, false, numOps, oltpWaitTime, insProb,
                     delProb, updProb, onlyQ1));
         auto& client = *clients.back();
         boost::split(hostPort, *hostIter, boost::is_any_of(":"), boost::token_compress_on);

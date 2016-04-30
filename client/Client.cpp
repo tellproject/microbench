@@ -23,6 +23,7 @@
 #include "Client.hpp"
 #include <crossbow/logger.hpp>
 #include <boost/format.hpp>
+#include <thread>
 
 
 namespace mbench {
@@ -178,6 +179,7 @@ void Client::doRun() {
     if (done(now)) {
         return;
     }
+    mNextOLTPSend += std::chrono::microseconds(mOLTPWaitTime);
     mClient.execute<Commands::BatchOp>([this, now](const err_code& ec, const BatchResult& res){
         assertOk(*this, ec, Commands::BatchOp);
         assertOk(*this, res, Commands::BatchOp);
@@ -192,6 +194,7 @@ void Client::doRun() {
         mBatchOp.baseInsertKey = res.baseInsertKey;
         mBatchOp.baseDeleteKey = res.baseDeleteKey;
         mLog.emplace_back(std::move(l));
+        std::this_thread::sleep_until(mNextOLTPSend);
         doRun();
     }, mBatchOp);
 }
@@ -245,6 +248,7 @@ void Client::run(const Clock::duration& duration, bool timer) {
     mEndTime = now + duration;
     mTimer = timer;
     mLastTime = now;
+    mNextOLTPSend = now;
     if (mAnalytical) doRunAnalytical();
     else doRun();
 }

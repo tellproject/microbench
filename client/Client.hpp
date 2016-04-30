@@ -53,12 +53,14 @@ private:
     Clock::time_point mStartTime;
     Clock::time_point mEndTime;
     Clock::time_point mLastTime;
+    Clock::time_point mNextOLTPSend;
     std::mt19937_64 mRnd;
     std::uniform_int_distribution<unsigned> mDist;
     bool mAnalytical;
     std::deque<LogEntry> mLog;
     unsigned mNumClients;
     unsigned mClientId;
+    unsigned mOLTPWaitTime;
     Commands mCurrent;
     BatchOp mBatchOp;
     bool mOnlyQ1;
@@ -75,6 +77,7 @@ public:
            , unsigned clientId
            , bool analytical
            , unsigned numOps
+           , unsigned oltpWaitTime
            , double insertProb
            , double deleteProb
            , double updateProb
@@ -90,6 +93,7 @@ public:
         , mAnalytical(analytical)
         , mNumClients(numClients)
         , mClientId(clientId)
+        , mOLTPWaitTime(oltpWaitTime)
         , mOnlyQ1(onlyQ1)
     {
         mBatchOp.numOps        = numOps;
