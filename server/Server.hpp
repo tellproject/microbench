@@ -142,7 +142,7 @@ private: // members
                 distsi(0, 255),
                 distbi(std::numeric_limits<int64_t>::min(), 0),
                 distbi(),
-                distd(),
+                distd(), //TODO: this should actually be distd(std::numeric_limits<double>::min(), std::numeric_limits<double>::max()) to adhere to the benchmark specs...
                 disti(0, 9));
     std::vector<string> mSyllables = {
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
